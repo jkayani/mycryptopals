@@ -76,6 +76,12 @@ func frombase16(digit byte) (val int) {
 	}
 	return int(digit) - modifier
 }
+func tobase16(val int) (digit byte) {
+	if val >= 10 {
+		return byte(87 + val)
+	}
+	return byte(48 + val)
+}
 
 func hex2base64(hex string) string {
 	bitstream := make([]int, 0)
@@ -224,6 +230,23 @@ func hex2base64_bitwise(hex string) (result string) {
 
 	for _, val := range(sixbits) {
 		result += fmt.Sprintf("%c", tobase64(int(val)))
+	}
+
+	return result
+}
+
+func fixedxor(hex1, hex2 string) (result string) {
+	for i := 0; i < len(hex1); i +=1 {
+		val1, val2 := frombase16(hex1[i]), frombase16(hex2[i])
+
+		// or the bits to determine where at least 1 is set
+		// and the bits to determine where both are set
+		// -> negate above to determine where either only 1 is set, or neither
+		// -> -> and above negation with the or to find where exactly 1 is set
+		r := ((val1 | val2) & ^(val1 & val2))
+		result += fmt.Sprintf("%c", tobase16(r))
+
+		// fmt.Printf("val1: %d (%v), val2: %d (%v) => XOR: %d (%v)", val1 , bits(val1, 4), val2, bits(val2, 4), r, bits(r, 4))
 	}
 
 	return result
