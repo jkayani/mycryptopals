@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"math"
+	"strconv"
 )
 
 func main() {
@@ -65,7 +66,15 @@ func tobase64(val int) (ascii int) {
 	return 
 }
 
-func frombase16(digit byte) (val int) {
+func tobase16(val int) (ascii int) {
+	if val >= 10 {
+		return 87 + val
+	}
+	return 48 + val
+}
+
+// TODO: replace with strconv.ParseInt
+func frombase16char_tovalue(digit byte) (val int) {
 	var modifier int
 	if int(digit) >= 97 {
 		modifier = 87
@@ -76,20 +85,14 @@ func frombase16(digit byte) (val int) {
 	}
 	return int(digit) - modifier
 }
-func tobase16(val int) (digit byte) {
-	if val >= 10 {
-		return byte(87 + val)
-	}
-	return byte(48 + val)
-}
 
-func hex2base64(hex string) string {
+func hex2base64_naive(hex string) string {
 	bitstream := make([]int, 0)
 
 	for k := 0; k < len(hex); k += 1 {
 
 		// hex to binary, resolving hex digits to decimal values
-		order := bits(frombase16(hex[k]), 4)
+		order := bits(frombase16char_tovalue(hex[k]), 4)
 
 		// fmt.Printf("\nconvert %c as %d => %v", hex[k], int(hex[k]) - modifier, order)
 		bitstream = append(bitstream, order...)
@@ -139,6 +142,14 @@ func firstmask(firstkbits int) byte {
 		return 0xe0
 	case 4:
 		return 0xf0
+	case 5:
+		return 0xf8
+	case 6:
+		return 0xfc
+	case 7:
+		return 0xfe
+	case 8:
+		return 0xff
 	}
 	return 0x0
 }
@@ -167,7 +178,7 @@ func hex2base64_bitwise(hex string) (result string) {
 		hexdigit := hex[i]
 
 		// Find bitwise value of hexdigit and place in first 4 bits
-		val := byte(frombase16(hexdigit))
+		val := byte(frombase16char_tovalue(hexdigit))
 		nibble := val << 4
 
 		bitwise := bits(int(nibble), 8)
@@ -235,19 +246,194 @@ func hex2base64_bitwise(hex string) (result string) {
 	return result
 }
 
-func fixedxor(hex1, hex2 string) (result string) {
+func tobytes(hex string) (bytes []byte) {
+	var i int
+	for i = 0; i < len(hex) - 1; i += 2 {
+		hexv, _ := (strconv.ParseUint(hex[i:i + 2], 16, 8))
+		bytes = append(bytes, byte(hexv))
+	}
+	if i != len(hex) {
+		hexv, _ := (strconv.ParseUint(hex[i:i + 1] + "0", 16, 8))
+		bytes = append(bytes, byte(hexv))
+	}
+	return
+}
+
+func tobytes_ascii(ascii string) (bytes[] byte) {
+	bytes = make([]byte, 0)
+	for i := 0; i < len(ascii); i += 1  {
+		bytes = append(bytes, ascii[i])
+	}
+	return
+}
+
+func hex2base64_bytes(bytes []byte) []byte {
+
+	// Byte being used in byte stream
+	bindex := 0
+
+	// Number of bits toward 6
+	bitstaken := 0
+
+	// Number of bits left in bytes[bindex]
+	bitsleft := 8
+
+	// hextet built
+	b64_val := byte(0)
+
+	// bytes of base64 values
+	result := make([]byte, 0)
+
+	for bindex < len(bytes) {
+		if bitstaken == 6 {
+
+			// The hextet must have its 6 bits shifted to the end to be interpeted correctly
+			b64_val >>= 2
+			result = append(result, b64_val)
+
+			fmt.Printf("result: %d => %s\n", b64_val, base64encode_bytes(result))
+
+			bitstaken = 0
+			b64_val = 0
+		} else {
+
+			// Move on to next byte
+			// There might not be another, so stop and re-evaluate loop condition
+			if bitsleft == 0 {
+				bindex += 1
+				bitsleft = 8
+				continue
+			}
+
+			// There may not be enough bits left in the current byte to fill the hextet
+			// Take whatever we can, or everything we need, depending on what's there
+			var mask int
+			bitsneeded := 6 - bitstaken
+			if bitsleft > bitsneeded {
+				mask = bitsneeded
+			} else {
+				mask = bitsleft
+			}
+
+			// Take the bits, shifting them right so they don't collide with pre-existing bits in hextet
+			// Remove taken bits from current byte by left shift
+			bits := (bytes[bindex] & firstmask(mask))
+			bytes[bindex] <<= mask
+			bits >>= bitstaken
+
+			bitstaken += mask
+			bitsleft -= mask
+		
+			b64_val |= bits
+		}
+	}
+
+	// Add any left-over bits
+	if bitstaken > 0 {
+			b64_val >>= 2
+			result = append(result, b64_val)
+			fmt.Printf("result: %d => %s\n", b64_val, base64encode_bytes(result))
+	}
+
+	return result
+}
+
+func base64encode_bytes(bytes []byte) (result string) {
+	for _, b := range(bytes) {
+		result += fmt.Sprintf("%c", tobase64(int(b)))
+	}
+	return
+}
+
+func base16encode_bytes(bytes []byte) (result string) {
+	for _, b := range(bytes) {
+		result += fmt.Sprintf("%c%c", tobase16(int((b & firstmask(4)) >> 4)), tobase16(int(b & lastmask(4))))
+	}
+	return
+}
+
+func fixedxor(hex1, hex2 []byte) (result []byte) {
+	result = make([]byte, 0)
 	for i := 0; i < len(hex1); i +=1 {
-		val1, val2 := frombase16(hex1[i]), frombase16(hex2[i])
+		val1, val2 := hex1[i], hex2[i]
 
 		// or the bits to determine where at least 1 is set
 		// and the bits to determine where both are set
 		// -> negate above to determine where either only 1 is set, or neither
 		// -> -> and above negation with the or to find where exactly 1 is set
 		r := ((val1 | val2) & ^(val1 & val2))
-		result += fmt.Sprintf("%c", tobase16(r))
+		result = append(result, r)
 
-		// fmt.Printf("val1: %d (%v), val2: %d (%v) => XOR: %d (%v)", val1 , bits(val1, 4), val2, bits(val2, 4), r, bits(r, 4))
+		// fmt.Printf("val1: %d , val2: %d => XOR: %d\n", val1 , val2, r)
 	}
 
 	return result
+}
+
+func rankplaintext(bytes []byte) (score float64) {
+	vowels := []byte{65, 69, 73, 79, 85, 97, 101, 105, 111, 117}
+	var v, space, alphanum, weird float64
+	for _, b := range(bytes) {
+		if b == 0x20 {
+			space += 1
+		}
+
+		if (b >= 48 && b <= 57) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122) {
+			alphanum += 1
+			for _, v := range(vowels) {
+				if b == v {
+					v += 1
+					break
+				}
+			}
+		} else if (b >= 91 && b <= 96) || b >= 123 {
+			weird += 1
+		}
+	}
+
+	// Rank result bytes as follows:
+	// 70% for alphanum chars
+	// 20% for spaces
+	// 10% for vowels
+	// -10% for weird punctuation (brackets)
+	// TODO improvement: too many uppercase bad? 
+	return (alphanum * float64(0.7)) + (space * float64(0.2)) + (v * float64(0.1)) - (weird * float64(0.1))
+}
+
+// This works b/c (a XOR b) XOR b = a
+// Bit is set whenever exactly 1 of the 2 bits is set
+// => 1st operand = 1, 2nd operand = 0 => 1st bit is 1
+// => 1st operand = 1, 2nd operand = 1 => 1st bit is 0
+// => 1st operand = 0, 2nd operand = 1 => 1st bit is 1
+// => 1st operand = 0, 2nd operand = 0 => 1st bit is 0
+func xordecrypt(bytes []byte) () {
+	type r struct {
+		bytes []byte
+		ascii string
+		score float64
+	}
+	results := map[byte]r{}
+
+	var i byte
+	for i = 32; i < 123; i += 1 {
+		ascii := ""
+		rbytes := []byte{}
+		for _, b := range(bytes) {
+			xor := fixedxor([]byte{b}, []byte{i})[0]
+			rbytes = append(rbytes, xor)
+			ascii += fmt.Sprintf("%c", xor)
+		}
+		results[i] = r{rbytes, ascii, rankplaintext(rbytes)}
+	}
+
+	xorchar, maxscore := byte(0), float64(0)
+	for k, result := range(results) {
+		if result.score > maxscore {
+			maxscore = result.score
+			xorchar = k
+		}
+		// fmt.Printf("%d (%c), score: %f => %s\n", k, k, result.score, result.ascii)
+	}
+
+	fmt.Printf("best score: %f from %d (%c) => %s\n", maxscore, xorchar, xorchar, results[xorchar].ascii)
 }

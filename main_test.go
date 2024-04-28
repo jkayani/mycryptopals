@@ -65,12 +65,30 @@ func TestMask(tt *t.T) {
 	}
 }
 
+func TestToBytes(tt *t.T) {
+	cases := map[string][]byte{
+		"4": []byte{64},
+		"49": []byte{73},
+		"492": []byte{73, 32},
+		"82": []byte{130},
+		"23": []byte{35},
+	}
+	for input, expected := range(cases) {
+		if out := tobytes(input); !slices.Equal(expected, out) {
+			tt.Fatalf("expected %v, got %v bytes of hex %s", expected, out, input)
+		}
+	}
+}
+
 func TestHextobase64(tt *t.T) {
 	cases := map[string]string{
+		"23": "Iw",
+		"82bcf2": "grzy",
+		"49276d20":"SSdtIA",
 		"49276d206b696c6c696e6720796f757220627261696e206c696b65206120706f69736f6e6f7573206d757368726f6f6d":"SSdtIGtpbGxpbmcgeW91ciBicmFpbiBsaWtlIGEgcG9pc29ub3VzIG11c2hyb29t",
 	}
 	for input, expected := range(cases) {
-		if out := hex2base64_bitwise(input); out != expected {
+		if out := base64encode_bytes(hex2base64_bytes(tobytes(input))); out != expected {
 			tt.Fatalf("expected %s, got %s base64 encoding of %s", expected, out, input)
 		}
 	}
@@ -85,8 +103,19 @@ func TestFixedXor(tt *t.T) {
 		input{"1c0111001f010100061a024b53535009181c", "686974207468652062756c6c277320657965"}: "746865206b696420646f6e277420706c6179",
 	}
 	for input, expected := range(cases) {
-		if out := fixedxor(input.s1, input.s2); out != expected {
+		if out := base16encode_bytes(fixedxor(tobytes(input.s1), tobytes(input.s2))); out != expected {
 			tt.Fatalf("expected %s, got %s fixedxor b/w %s and %s", expected, out, input.s1, input.s2)
 		}
+	}
+}
+
+func TestXorByteCipher(tt *t.T) {
+	cases := []string {
+		"1b373733",
+		"1b37373331363f78151b7f2b",
+		"1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736",
+	}
+	for _, input := range(cases) {
+		xordecrypt(tobytes(input))
 	}
 }
