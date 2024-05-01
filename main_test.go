@@ -119,3 +119,7 @@ func TestXorByteCipher(tt *t.T) {
 		xordecrypt(tobytes(input))
 	}
 }
+
+func TestFindXoredString(tt *t.T) {
+	findxoredstring()
+}

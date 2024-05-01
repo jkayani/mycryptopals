@@ -5,10 +5,21 @@ import (
 	"slices"
 	"math"
 	"strconv"
+	"os"
+	"bufio"
 )
 
 func main() {
 	fmt.Println("nothing")
+}
+
+func read(file string) *bufio.Scanner {
+	f, err := os.Open(file)
+	if err != nil {
+		fmt.Printf("cannot read %s: %s", file, err)
+	}
+
+	return bufio.NewScanner(f)
 }
 
 func bits(n, padding int) []int {
@@ -386,18 +397,21 @@ func rankplaintext(bytes []byte) (score float64) {
 					break
 				}
 			}
-		} else if (b >= 91 && b <= 96) || b >= 123 {
+		} else if (b >= 91 && b <= 96) || b >= 123 || (b < 32 && b != 10) {
 			weird += 1
 		}
+	}
+
+	// Obviously not English plaintext
+	if weird > 0 {
+		return -1
 	}
 
 	// Rank result bytes as follows:
 	// 70% for alphanum chars
 	// 20% for spaces
 	// 10% for vowels
-	// -10% for weird punctuation (brackets)
-	// TODO improvement: too many uppercase bad? 
-	return (alphanum * float64(0.7)) + (space * float64(0.2)) + (v * float64(0.1)) - (weird * float64(0.1))
+	return (alphanum * float64(0.7)) + (space * float64(0.2)) + (v * float64(0.1))
 }
 
 // This works b/c (a XOR b) XOR b = a
@@ -419,9 +433,9 @@ func xordecrypt(bytes []byte) () {
 		ascii := ""
 		rbytes := []byte{}
 		for _, b := range(bytes) {
-			xor := fixedxor([]byte{b}, []byte{i})[0]
-			rbytes = append(rbytes, xor)
-			ascii += fmt.Sprintf("%c", xor)
+			xor := fixedxor([]byte{b}, []byte{i})
+			rbytes = append(rbytes, xor[0])
+			ascii += string(xor)
 		}
 		results[i] = r{rbytes, ascii, rankplaintext(rbytes)}
 	}
@@ -436,4 +450,61 @@ func xordecrypt(bytes []byte) () {
 	}
 
 	fmt.Printf("best score: %f from %d (%c) => %s\n", maxscore, xorchar, xorchar, results[xorchar].ascii)
+}
+
+func findxoredstring() {
+	type result struct {
+		cipherbytes []byte
+		plainbytes []byte
+		xorv byte
+		score float64
+	}
+	data := map[string]result{}
+
+	s := read("1_4.txt")
+	for s.Scan() {
+		t := s.Text()
+		data[t] = result{
+			cipherbytes: tobytes(t),
+		}
+	}
+
+	for ciphertext, r := range(data) {
+		bestscore := float64(0)
+		bestxor := byte(0)
+		bestbytes := []byte{}
+		var i byte
+		for i = 32; i < 123; i +=1 {
+			plainbytes := []byte{}
+			for _, b := range(r.cipherbytes) {
+				plainbytes = append(plainbytes, fixedxor([]byte{b}, []byte{i})[0])
+			}
+			rank := rankplaintext(plainbytes)
+			if rank > bestscore {
+				// fmt.Printf("%s appears to be closer to plaintext with score %f, generated from %s XOR %d\n", frombytes_ascii(plainbytes), rank, ciphertext, i)
+				bestscore = rank
+				bestxor = i
+				bestbytes = plainbytes
+			}
+		}
+
+		if bestscore > 0 {
+			d := data[ciphertext]
+			d.plainbytes = bestbytes
+			d.score = bestscore
+			d.xorv = bestxor
+			data[ciphertext] = d
+			// fmt.Printf("%s is most likely candidate with score %f, generated from %s XOR %d\n", string(bestbytes), bestscore, ciphertext, bestxor)
+		}
+	}
+
+	finalchoice := ""
+	for ciphertext, r := range(data) {
+		if r.score > data[finalchoice].score {
+			finalchoice = ciphertext
+		}
+	}
+
+	final := data[finalchoice]
+	fmt.Printf("ciphertext was %s which decodes to %s when XORed with %d (score %f)\n", finalchoice, string(final.plainbytes), final.xorv, final.score)
 }
