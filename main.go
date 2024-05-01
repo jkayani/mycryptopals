@@ -508,3 +508,17 @@ func findxoredstring() {
 	final := data[finalchoice]
 	fmt.Printf("ciphertext was %s which decodes to %s when XORed with %d (score %f)\n", finalchoice, string(final.plainbytes), final.xorv, final.score)
 }
+
+func repeatingxor(bytes []byte, key string) string {
+	keybytes := tobytes_ascii(key)
+	k := 0
+	result := []byte{}
+	for _, b := range bytes {
+		result = append(result, fixedxor([]byte{b}, []byte{keybytes[k]})[0])
+		k = (k + 1) % len(keybytes)
+	}
+
+	hex := base16encode_bytes(result)
+	// fmt.Printf("encrypt %v with %s => %s\n", bytes, key, hex)
+	return hex
+}
