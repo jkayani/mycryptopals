@@ -97,6 +97,32 @@ func frombase16char_tovalue(digit byte) (val int) {
 	return int(digit) - modifier
 }
 
+func frombase64char_tovalue(digit byte) (val byte) {
+	if digit == 43 {
+
+		// maps to +
+		val = 62
+	} else if digit == 47 {
+
+		// maps to /
+		val = 63
+	} else if digit >= 48 && digit <= 57 {
+
+		// values that map to digits
+		val = (digit - 48) + 52
+	} else if digit >= 97 && digit <= 122 {
+
+		// values that map to lower-case
+		val = (digit - 97) + 26
+	} else {
+
+		// values that map to upper-case
+		val = digit - 65
+	}
+
+	return val
+}
+
 func hex2base64_naive(hex string) string {
 	bitstream := make([]int, 0)
 
@@ -257,7 +283,7 @@ func hex2base64_bitwise(hex string) (result string) {
 	return result
 }
 
-func tobytes(hex string) (bytes []byte) {
+func hexdecode(hex string) (bytes []byte) {
 	var i int
 	for i = 0; i < len(hex) - 1; i += 2 {
 		hexv, _ := (strconv.ParseUint(hex[i:i + 2], 16, 8))
@@ -270,11 +296,55 @@ func tobytes(hex string) (bytes []byte) {
 	return
 }
 
-func tobytes_ascii(ascii string) (bytes[] byte) {
-	bytes = make([]byte, 0)
-	for i := 0; i < len(ascii); i += 1  {
-		bytes = append(bytes, ascii[i])
+func base64decode(base64 string) (bytes []byte) {
+	bytes = []byte{}
+
+	bitstaken := 0
+	bitsleft := 6
+	c := 0
+	var bits, value byte = 0, frombase64char_tovalue(base64[c]) << 2
+	for {
+		// fmt.Printf("Bits taken: %d, bits left: %d\n", bitstaken, bitsleft)
+
+		if bitstaken == 8 {
+			// fmt.Printf("byte: %d\n", bits)
+			bytes = append(bytes, bits)
+			bits, bitstaken = 0, 0
+		}
+
+		if bitsleft == 0 {
+			c += 1 
+
+			// Consider padding chars as end of availible bits
+			if c == len(base64) || base64[c] == 61 {
+				break
+			}
+			value = frombase64char_tovalue(base64[c]) << 2
+			// fmt.Printf("No bits left, increment to byte %d, next value %d. Byte so far %d\n", c, value, bits)
+			bitsleft = 6
+		}
+
+		needed := 8 - bitstaken
+		var mask int
+		if needed <= bitsleft {
+			mask = needed
+		} else {
+			mask = bitsleft
+		}
+
+		bits |= (value & firstmask(mask)) >> bitstaken
+		value <<= mask
+		bitsleft -= mask
+		bitstaken += mask
+		// fmt.Printf("Byte now: %d, bitstaken: %d, value left %d\n", bits, bitstaken, value)
 	}
+
+	// TODO; why are the leftover bits discarded?
+	// if bitstaken == 8 {
+	// 	fmt.Printf("%d bits were taken but no more to fill byte, append %d\n", bitstaken, bits)
+	// 	bytes = append(bytes, bits)
+	// }
+
 	return
 }
 
@@ -465,7 +535,7 @@ func findxoredstring() {
 	for s.Scan() {
 		t := s.Text()
 		data[t] = result{
-			cipherbytes: tobytes(t),
+			cipherbytes: hexdecode(t),
 		}
 	}
 
@@ -510,7 +580,7 @@ func findxoredstring() {
 }
 
 func repeatingxor(bytes []byte, key string) string {
-	keybytes := tobytes_ascii(key)
+	keybytes := []byte(key)
 	k := 0
 	result := []byte{}
 	for _, b := range bytes {
@@ -521,4 +591,140 @@ func repeatingxor(bytes []byte, key string) string {
 	hex := base16encode_bytes(result)
 	// fmt.Printf("encrypt %v with %s => %s\n", bytes, key, hex)
 	return hex
+}
+
+func hamming(onebytes, twobytes []byte) int {
+	xorbytes := fixedxor(onebytes, twobytes)
+	var set, bindex int
+	for i := 0; i < len(xorbytes) * 8; i += 1 {
+		if i > 0 && i % 8 == 0 {
+			bindex += 1
+		}
+
+		if xorbytes[bindex] & firstmask(1) > 0 {
+			set += 1
+		}
+		xorbytes[bindex] <<= 1
+	}
+	return set
+}
+
+func decodebase64_file(file string) []byte {
+	bytes := []byte{}
+	s := read(file)
+	for s.Scan() {
+		bytes = append(bytes, base64decode(s.Text())...)
+	}
+	return bytes
+}
+
+// Take K samples (K must be even) and average the pair-wise hamming dist
+// Vary the sample length from lb to ub bytes
+func evalkeysize(bytes []byte, lb, ub, samplesize int) int {
+	lowestdist := float64(len(bytes))
+	keysize := 0
+
+	if ub * samplesize > len(bytes) {
+		fmt.Printf("error: Not enough data to collect %d samples of size %d bytes\n", samplesize, ub)
+		return -1
+	}
+
+	for i := lb; i < ub; i += 1 {
+		samples := [][]byte{}
+		for j := 0; j < samplesize; j += 1 {
+			samples = append(samples, bytes[i * j:i * (j + 1)])
+		}
+
+		var avg float64
+		for j := 0; j < samplesize - 1; j += 2 {
+			avg += float64(hamming(samples[j], samples[j + 1])) / float64(i)
+		}
+		avg /= float64(samplesize / 2)
+
+		if avg < lowestdist {
+			// fmt.Printf("key size of %d yields lower hamming %f than key size of %d\n", i, avg, keysize)
+			keysize = i
+			lowestdist = avg
+		} else {
+			// fmt.Printf("try key size %d => %f\n", i, avg)
+		}
+	}
+	// fmt.Printf("keysize that yields lowest hamming: %d\n", keysize)
+	return keysize
+}
+
+func findkeysize(bytes []byte, lb, ub, uppersamplesize int) int {
+	freqs := map[int]int{}
+
+	// As sample size increases, the keysize with best pair-wise hamming dist is converged on?
+	// So test all key sizes at increasing sample sizes and take the overall best performing keysize
+	for i := 2; i < uppersamplesize; i += 2 {
+		f := evalkeysize(bytes, lb, ub, i)
+		if f == -1 {
+			fmt.Printf("invalid attempt, stopping at sample size %d\n", i - 2)
+			break
+		}
+		freqs[f] += 1
+	}
+	best, freq := 0, 0
+	for k, v := range freqs {
+		if v > freq {
+			best = k
+			freq = v
+		}
+	}
+	fmt.Printf("keysize of %d occurs as best most often (%d times given %d rounds). All data: %v\n", best, freq, uppersamplesize / 2, freqs)
+	return best
+}
+
+func decryptrepeatedxor(bytes []byte, keysize int) {
+
+	// Split byte slices by index (up to keysize) into fixedxor byte slices
+	// i.e, take each 1st byte into slice, each 2nd byte, etc
+	chunks := make([][]byte, keysize)
+	i := 0
+	for _, b := range bytes {
+		chunks[i] = append(chunks[i], b)
+		i = (i + 1) % keysize 
+	}
+
+	keybytes := make([]byte, keysize)
+	plainbytes := make([][]byte, keysize)
+	for cnum, c := range chunks {
+		bestscore := float64(0)
+		var i byte
+		for i = 32; i < 123; i += 1 {
+			xoredbytes := []byte{}
+			for _, b := range c {
+				xoredbytes = append(xoredbytes, fixedxor([]byte{b}, []byte{i})[0])
+			}
+			r := rankplaintext(xoredbytes)
+			// fmt.Printf("XORed %dth bytes from each %d block against %d => ?, rank %f\n", cnum, keysize, i, r)
+			if r > bestscore {
+				keybytes[cnum] = i
+				bestscore = r
+				plainbytes[cnum] = xoredbytes
+			}
+		}
+		// fmt.Printf("Best XOR key for %dth bytes: %d (%s) => %s, rank %f\n", cnum, keybytes[cnum], string([]byte{keybytes[cnum]}), plainbytes[cnum], bestscore)
+	}
+
+	// Interleave the now decrypted plainbytes back together
+	i = 0
+	var msg string
+	for true {
+		added := false
+		for _, p := range plainbytes {
+			if i < len(p) {
+				msg += string(p[i])
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+		i += 1
+	}
+
+	fmt.Printf("key: [%s] => decrypted message: \n%s\n", string(keybytes), msg)
 }
