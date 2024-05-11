@@ -436,19 +436,17 @@ func base16encode_bytes(bytes []byte) (result string) {
 func fixedxor(hex1, hex2 []byte) (result []byte) {
 	result = make([]byte, 0)
 	for i := 0; i < len(hex1); i +=1 {
-		val1, val2 := hex1[i], hex2[i]
-
-		// or the bits to determine where at least 1 is set
-		// and the bits to determine where both are set
-		// -> negate above to determine where either only 1 is set, or neither
-		// -> -> and above negation with the or to find where exactly 1 is set
-		r := ((val1 | val2) & ^(val1 & val2))
-		result = append(result, r)
-
-		// fmt.Printf("val1: %d , val2: %d => XOR: %d\n", val1 , val2, r)
+		result = append(result, xorbytes(hex1[i], hex2[i]))
 	}
-
 	return result
+}
+
+func xorbytes(byte1, byte2 byte) (byte) {
+	// or the bits to determine where at least 1 is set
+	// and the bits to determine where both are set
+	// -> negate above to determine where either only 1 is set, or neither
+	// -> -> and above negation with the or to find where exactly 1 is set
+	return ((byte1 | byte2) & ^(byte1 & byte2))
 }
 
 func rankplaintext(bytes []byte) (score float64) {
