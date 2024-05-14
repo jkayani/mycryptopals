@@ -227,3 +227,11 @@ func TestDetectAES_ECB(tt *t.T) {
 
 	detectaes_ecb("1_8.txt")
 }
+
+func TestPKCS7Pad(tt *t.T) {
+	input := "YELLOW SUBMARINE"
+	e := base16encode_bytes([]byte(input)) + "04040404"
+	if out := pkcs7pad(input, 20); out != e {
+		tt.Fatalf("expected %s for PKCS7 pad of %s to len %d, got %s\n", e, input, 20, out)
+	}
+}

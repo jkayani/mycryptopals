@@ -754,3 +754,12 @@ func detectaes_ecb(file string) {
 		}
 	}
 }
+
+func pkcs7pad(ascii string, length_bytes int) string {
+	n := length_bytes - len(ascii)
+	b := []byte(ascii)
+	for i := 0; i < n; i += 1 {
+		b = append(b, byte(n))
+	}
+	return base16encode_bytes(b)
+}
