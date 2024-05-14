@@ -726,3 +726,30 @@ func decryptrepeatedxor(bytes []byte, keysize int) {
 
 	fmt.Printf("key: [%s] => decrypted message: \n%s\n", string(keybytes), msg)
 }
+
+func findaesecb(hex string) bool {
+	wordlen_hexchar := 32
+	table := map[string]int{}
+	if len(hex) % wordlen_hexchar != 0 {
+		fmt.Printf("%s cannot be AES 128 since length isn't multiple of 16 bytes\n", hex)
+		return false
+	}
+	for i := 0; i < len(hex); i += wordlen_hexchar {
+		s := hex[i : i + wordlen_hexchar]
+		if table[s] > 0 {
+			fmt.Printf("substring %s repeats at index %d, current count: %d\n", s, i, table[s])
+			return true
+		}
+		table[s] += 1
+	}
+	return false
+}
+func detectaes_ecb(file string) {
+	s := read(file)
+	for s.Scan() {
+		t := s.Text()
+		if findaesecb(t) {
+			fmt.Printf("AES-128 in ECB mode line: %s\n", t)
+		}
+	}
+}

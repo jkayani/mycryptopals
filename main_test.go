@@ -218,3 +218,12 @@ func TestDecryptRepeatedXor(tt *t.T) {
 	cipherbytes := decodebase64_file("1_6.txt")
 	decryptrepeatedxor(cipherbytes, findkeysize(cipherbytes, 2, 40, 64))
 }
+
+func TestDetectAES_ECB(tt *t.T) {
+	input := "201e802f7b6ace6f6cd0a743ba78aead201e802f7b6ace6f6cd0a743ba78aead"
+	if !findaesecb(input) {
+		tt.Fatalf("failed to detect AES-128 ECB in %s\n", input)
+	}
+
+	detectaes_ecb("1_8.txt")
+}
