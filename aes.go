@@ -363,3 +363,36 @@ func (a *AES) decrypt() []byte {
 
 	return wordstobytes(a.cipherbytes)
 }
+
+func (a *AES) encrypt() []byte {
+	round := 0
+
+	a.addroundkey(round)
+	round += 1
+
+	for round < ROUND_COUNT - 1 {
+		a.substitute(round, false)
+		a.shiftrows(round, false)
+		a.mixcols(round, false)
+		a.addroundkey(round)
+		round += 1
+	}
+	a.substitute(round, false)
+	a.shiftrows(round, false)
+	a.addroundkey(round)
+
+	return wordstobytes(a.cipherbytes)
+}
+
+func (a *AES) Encrypt(cipherbytes, key[]byte) string {
+	a.cipherbytes = bytestowords(cipherbytes)
+	a.key = key
+	a.makeroundkeys(false)
+	result := a.encrypt()
+	b16 := base16encode_bytes(result)
+
+	fmt.Printf("AES encrypt complete: %s\n", b16)
+	a.debugf("raw bytes: %v\n\n", result)
+
+	return b16
+}

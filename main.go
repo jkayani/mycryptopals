@@ -744,6 +744,7 @@ func findaesecb(hex string) bool {
 	}
 	return false
 }
+
 func detectaes_ecb(file string) {
 	s := read(file)
 	for s.Scan() {

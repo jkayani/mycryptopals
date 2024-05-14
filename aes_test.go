@@ -298,3 +298,35 @@ func TestAESDecrypt(tt *t.T) {
 	// openssl enc -aes-128-ecb -nosalt -K "59454c4c4f57205355424d4152494e45" -nopad < plaintest | hexdump -v -e '/1 "%02X"' | tr '[:upper:]' '[:lower:]'
 
 }
+
+func TestAESEncrypt(tt *t.T) {
+	type i struct {
+		cipherhex, keyhex string
+	}
+
+	// https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/aes/AESAVS.pdf
+	cases := map[i]string {
+		i{"00000000000000000000000000000000", "10a58869d74be5a374cf867cfb473859"}: "6d251e6944b051e04eaa6fb4dbf78465",
+		i{"00000000000000000000000000000000", "caea65cdbb75e9169ecd22ebe6e54675"}: "6e29201190152df4ee058139def610bb",
+		i{base16encode_bytes([]byte("My super secret ")), "10a58869d74be5a374cf867cfb473859"}: "3D1B7BDDF46221E1E462662B56910551" ,
+	}
+
+	encryptcli := "openssl enc -aes-128-ecb -nosalt -K \"%s\" -nopad < plaintest | hexdump -v -e '/1 \"%%02X\"' | tr '[:upper:]' '[:lower:]'"
+	a := AES{}
+	for input, _ := range cases {
+		out := a.Encrypt(hexdecode(input.cipherhex), hexdecode(input.keyhex))
+
+		writehex(input.cipherhex, "plaintest")
+		cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf(encryptcli, input.keyhex))
+		expected, err := cmd.Output()
+		if err != nil {
+			fmt.Printf("error: %s: %s\n", err, string(err.(*exec.ExitError).Stderr))
+		}
+		// fmt.Printf("cmd: %s\nexpected: %s\nactual: %s", fmt.Sprintf(encryptcli, input.keyhex), expected, out)
+
+		if out != string(expected) {
+			// tt.Fatalf("expected %v (%d)for decryption of %s with key %s, got %v (%d)\n", hexdecode(string(expected)), len(expected), input.cipherhex, input.keyhex, hexdecode(out), len(out))
+			tt.Fatalf("expected %v (%d) for encryption of %s with key %s, got %v (%d)\n", string(expected), len(expected), input.cipherhex, input.keyhex, out, len(out))
+		}
+	}
+}
