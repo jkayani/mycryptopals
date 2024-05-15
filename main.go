@@ -745,14 +745,16 @@ func findaesecb(hex string) bool {
 	return false
 }
 
-func detectaes_ecb(file string) {
+func detectaes_ecb(file string) string {
 	s := read(file)
 	for s.Scan() {
 		t := s.Text()
 		if findaesecb(t) {
 			fmt.Printf("AES-128 in ECB mode line: %s\n", t)
+			return t
 		}
 	}
+	return ""
 }
 
 func pkcs7pad(ascii string, length_bytes int) string {

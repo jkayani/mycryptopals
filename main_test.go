@@ -226,6 +226,8 @@ func TestDetectAES_ECB(tt *t.T) {
 	}
 
 	detectaes_ecb("1_8.txt")
+	// a := AES{}
+	// a.Decrypt_ECB(hexdecode(detectaes_ecb("1_8.txt")), []byte("YELLOW SUBMARINE"))
 }
 
 func TestPKCS7Pad(tt *t.T) {
