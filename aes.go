@@ -74,6 +74,7 @@ type word []byte
 
 type AES struct {
 	key []byte
+	iv []word
 	roundkeys [][]word
 	cipherbytes []word
 	debug bool
@@ -240,7 +241,7 @@ func (a *AES) blockiterator(round int, direction bool, op func (round int, direc
 }
 
 func (a *AES) addroundkey(round int) {
-	a.debugf("addroundkey: cipherbytes AFTER adding round key from round %d: %v\n", round, a.cipherbytes)
+	a.debugf("addroundkey: cipherbytes BEFORE adding round key from round %d: %v\n", round, a.cipherbytes)
 	a.blockiterator(round, false, func(r int, d bool, state []word) []word {
 		a.debugf("addroundkey: operating on block %v\n", state)
 
@@ -314,19 +315,19 @@ func (a *AES) mixcols(round int, direction bool) {
 	a.debugf("mixcols: cipherbytes AFTER %t mix columns on round %d: %v\n", direction, round, a.cipherbytes)
 }
 
-func (a *AES) Decrypt(cipherbytes, key[]byte) string {
+func (a *AES) Decrypt_ECB(cipherbytes, key []byte) []byte {
 	a.cipherbytes = bytestowords(cipherbytes)
 	a.key = key
 	a.makeroundkeys(true)
-	result := a.decrypt()
+	result := a.decrypt_ecb()
 
-	fmt.Printf("AES decrypt complete: %s\n", string(result))
+	fmt.Printf("AES ECB decrypt complete: %s\n", string(result))
 	a.debugf("raw bytes: %v\n\n", result)
 
-	return base16encode_bytes(result)
+	return result
 }
 
-func (a *AES) DecryptFile(filename, key string) string {
+func (a *AES) DecryptFile_ECB(filename, key string) []byte {
 	s := read(filename)
 	rawbytes := []byte{}
 	for s.Scan() {
@@ -336,15 +337,15 @@ func (a *AES) DecryptFile(filename, key string) string {
 	a.cipherbytes = bytestowords(rawbytes)
 	a.key = []byte(key)
 	a.makeroundkeys(true)
-	result := a.decrypt()
+	result := a.decrypt_ecb()
 
-	fmt.Printf("AES decrypt complete: %s\n", string(result))
+	fmt.Printf("AES ECB decrypt complete: %s\n", string(result))
 	a.debugf("raw bytes: %v\n\n", result)
 
-	return base16encode_bytes(result)
+	return result
 }
 
-func (a *AES) decrypt() []byte {
+func (a *AES) decrypt_ecb() []byte {
 	round := 0
 
 	a.addroundkey(round)
@@ -364,7 +365,7 @@ func (a *AES) decrypt() []byte {
 	return wordstobytes(a.cipherbytes)
 }
 
-func (a *AES) encrypt() []byte {
+func (a *AES) encrypt_ecb() []byte {
 	round := 0
 
 	a.addroundkey(round)
@@ -384,15 +385,122 @@ func (a *AES) encrypt() []byte {
 	return wordstobytes(a.cipherbytes)
 }
 
-func (a *AES) Encrypt(cipherbytes, key[]byte) string {
+func (a *AES) Encrypt_ECB(cipherbytes, key []byte) []byte {
 	a.cipherbytes = bytestowords(cipherbytes)
 	a.key = key
 	a.makeroundkeys(false)
-	result := a.encrypt()
+	result := a.encrypt_ecb()
 	b16 := base16encode_bytes(result)
 
-	fmt.Printf("AES encrypt complete: %s\n", b16)
+	fmt.Printf("AES ECB encrypt complete: %s\n", b16)
 	a.debugf("raw bytes: %v\n\n", result)
 
-	return b16
+	return result
+}
+
+func (a *AES) decrypt_cbc(fullcipherbytes []byte) []byte {
+	words := bytestowords(fullcipherbytes)
+
+	// The cipher core assumes all cipher blocks are operated on in-parallel
+	// Thus, end result is normally all decryped blocks
+	// For CBC, each block must be decrypted individually and XORed with still fully-encrypted previous block
+	// So, feed blocks individually to cipher core instead of all at once
+	for i := len(words); i >= 4; i -= 4 {
+		firstblock := words[i - 4 : i]
+		secondblock := a.iv
+		if i != 4 {
+			secondblock = words[i - 8 : i - 4]
+		}
+		a.debugf("decrypt_cbc: first block: %v; second block: %v\n", firstblock, secondblock)
+	
+		a.cipherbytes = firstblock
+		a.decrypt_ecb()
+		a.debugf("decrypt_cbc: pre-XOR, decryption of block %d: %v\n", i / 4, a.cipherbytes)
+		firstblock = a.cipherbytes
+
+		for k, w := range firstblock {
+			firstblock[k] = fixedxor(w, secondblock[k])
+		}
+		a.debugf("decrypt_cbc: post-XOR, decryption of block %d: %v\n", i / 4, firstblock)
+
+		for k, w := range firstblock {
+			words[i - 4 + k] = w
+		}
+	}
+
+	return wordstobytes(words)
+}
+
+func (a *AES) Decrypt_CBC(cipherbytes, key, iv []byte) []byte {
+	a.key = key
+	a.iv = bytestowords(iv)
+	a.makeroundkeys(true)
+	result := a.decrypt_cbc(cipherbytes)
+
+	fmt.Printf("AES CBC decrypt complete: %s\n", string(result))
+	a.debugf("raw bytes: %v\n\n", result)
+
+	return result
+}
+
+func (a *AES) DecryptFile_CBC(filename, key string, iv []byte) []byte {
+	s := read(filename)
+	rawbytes := []byte{}
+	for s.Scan() {
+		rawbytes = append(rawbytes, base64decode(s.Text())...)
+	}
+
+	a.key = []byte(key)
+	a.iv = bytestowords(iv)
+	a.makeroundkeys(true)
+	result := a.decrypt_cbc(rawbytes)
+
+	fmt.Printf("AES CBC decrypt complete: %s\n", string(result))
+	a.debugf("raw bytes: %v\n\n", result)
+
+	return result
+}
+
+func (a *AES) encrypt_cbc(fullcipherbytes []byte) []byte {
+	words := bytestowords(fullcipherbytes)
+
+	// The cipher core assumes all cipher blocks are operated on in-parallel
+	// Thus, end result is normally all decryped blocks
+	// For CBC, each block must be XORed with decrypted next block and encrypted individually
+	// So, feed blocks individually to cipher core instead of all at once
+	for i := 0; i <= len(words) - 4; i += 4 {
+		firstblock := words[i : i + 4]
+		secondblock := a.iv
+		if i > 0 {
+			secondblock = words[i - 4 : i]
+		}
+		a.debugf("encrypt_cbc: first block: %v; second block: %v\n", firstblock, secondblock)
+
+		for k, w := range firstblock {
+			firstblock[k] = fixedxor(w, secondblock[k])
+		}
+		a.debugf("encrypt_cbc: post-XOR of block %d: %v\n", i / 4, firstblock)
+	
+		a.cipherbytes = firstblock
+		a.encrypt_ecb()
+		a.debugf("encrypt_cbc: post-encrypt of block %d: %v\n", i / 4, a.cipherbytes)
+
+		for k, w := range a.cipherbytes {
+			words[i + k] = w
+		}
+	}
+
+	return wordstobytes(words)
+}
+
+func (a *AES) Encrypt_CBC(cipherbytes, key, iv []byte) []byte {
+	a.key = key
+	a.iv = bytestowords(iv)
+	a.makeroundkeys(false)
+	result := a.encrypt_cbc(cipherbytes)
+
+	fmt.Printf("AES CBC encrypt complete: %s\n", string(result))
+	a.debugf("raw bytes: %v\n\n", result)
+
+	return result
 }

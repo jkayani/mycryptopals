@@ -34,6 +34,18 @@ func writeascii(data, outfile string) {
 	f.Close()
 }
 
+func readbytes(file string) []byte {
+	data, _ := os.ReadFile(file)
+	return data
+}
+
+var (
+	openssl = "openssl enc %s %s -nosalt -nopad -K \"%s\""
+	openssl_iv = "openssl enc %s %s -nosalt -nopad -K \"%s\" -iv \"%s\""
+	hexdump = "hexdump -v -e '/1 \"%%02X\"'"
+	tr = "tr '[:upper:]' '[:lower:]'"
+)
+
 func TestRotate(tt *t.T) {
 	inputs := [][]byte{
 		[]byte{1, 2, 3, 4},
@@ -237,7 +249,7 @@ func TestTranspose(tt *t.T) {
 
 }
 
-func TestAESDecrypt(tt *t.T) {
+func TestAESDecrypt_ECB(tt *t.T) {
 	type i struct {
 		cipherhex, keyhex string
 	}
@@ -253,7 +265,7 @@ func TestAESDecrypt(tt *t.T) {
 	decryptcli := "openssl enc -d -aes-128-ecb -nosalt -K \"%s\" -nopad < ciphertest | hexdump -v -e '/1 \"%%02X\"' | tr '[:upper:]' '[:lower:]'"
 	a := AES{}
 	for input, _ := range cases {
-		out := a.Decrypt(hexdecode(input.cipherhex), hexdecode(input.keyhex))
+		out := a.Decrypt_ECB(hexdecode(input.cipherhex), hexdecode(input.keyhex))
 
 		writehex(input.cipherhex, "ciphertest")
 		cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf(decryptcli, input.keyhex))
@@ -262,7 +274,7 @@ func TestAESDecrypt(tt *t.T) {
 			fmt.Printf("error: %s: %s\n", err, string(err.(*exec.ExitError).Stderr))
 		}
 
-		if out != string(expected) {
+		if base16encode_bytes(out) != string(expected) {
 			// tt.Fatalf("expected %v (%d)for decryption of %s with key %s, got %v (%d)\n", hexdecode(string(expected)), len(expected), input.cipherhex, input.keyhex, hexdecode(out), len(out))
 			tt.Fatalf("expected %v (%d)for decryption of %s with key %s, got %v (%d)\n", expected, len(expected), input.cipherhex, input.keyhex, out, len(out))
 		}
@@ -283,13 +295,13 @@ func TestAESDecrypt(tt *t.T) {
 			fmt.Printf("error: %s: %s\n", err, string(err.(*exec.ExitError).Stderr))
 		}
 
-		out := a.Decrypt(hexdecode(string(cipher)), []byte(key))
-		if out != base16encode_bytes([]byte(input)) {
+		out := a.Decrypt_ECB(hexdecode(string(cipher)), []byte(key))
+		if base16encode_bytes(out) != base16encode_bytes([]byte(input)) {
 			tt.Fatalf("failed to decrypt the encryption of %s - encrypted value %s (hex), decrypted value: %s\n", input, string(cipher), out)
 		}
 	}
 
-	a.DecryptFile("1_7.txt", "YELLOW SUBMARINE")
+	a.DecryptFile_ECB("1_7.txt", "YELLOW SUBMARINE")
 
 	// aes-128-ecb CLI invoke:
 	// openssl enc -aes-128-ecb -nosalt -K "10a58869d74be5a374cf867cfb473859" -nopad < plain | hexdump -v -e '/1 "%02X"'
@@ -299,7 +311,7 @@ func TestAESDecrypt(tt *t.T) {
 
 }
 
-func TestAESEncrypt(tt *t.T) {
+func TestAESEncrypt_ECB(tt *t.T) {
 	type i struct {
 		cipherhex, keyhex string
 	}
@@ -314,7 +326,7 @@ func TestAESEncrypt(tt *t.T) {
 	encryptcli := "openssl enc -aes-128-ecb -nosalt -K \"%s\" -nopad < plaintest | hexdump -v -e '/1 \"%%02X\"' | tr '[:upper:]' '[:lower:]'"
 	a := AES{}
 	for input, _ := range cases {
-		out := a.Encrypt(hexdecode(input.cipherhex), hexdecode(input.keyhex))
+		out := a.Encrypt_ECB(hexdecode(input.cipherhex), hexdecode(input.keyhex))
 
 		writehex(input.cipherhex, "plaintest")
 		cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf(encryptcli, input.keyhex))
@@ -324,9 +336,50 @@ func TestAESEncrypt(tt *t.T) {
 		}
 		// fmt.Printf("cmd: %s\nexpected: %s\nactual: %s", fmt.Sprintf(encryptcli, input.keyhex), expected, out)
 
-		if out != string(expected) {
+		if base16encode_bytes(out) != string(expected) {
 			// tt.Fatalf("expected %v (%d)for decryption of %s with key %s, got %v (%d)\n", hexdecode(string(expected)), len(expected), input.cipherhex, input.keyhex, hexdecode(out), len(out))
 			tt.Fatalf("expected %v (%d) for encryption of %s with key %s, got %v (%d)\n", string(expected), len(expected), input.cipherhex, input.keyhex, out, len(out))
 		}
+	}
+}
+
+func TestAESDecrypt_CBC(tt *t.T) {
+	a := AES{
+		// debug: true,
+	}
+	key := "YELLOW SUBMARINE"
+	iv := make([]byte, 16)
+
+	out := a.DecryptFile_CBC("2_10.txt", key, iv)
+
+	input := "cat 2_10.txt | base64 -d"
+	cmdstring := fmt.Sprintf(input + " | " + openssl_iv + " | " + hexdump + " | " + tr, "-d", "-aes-128-cbc", base16encode_bytes([]byte(key)), base16encode_bytes(iv))
+	fmt.Println(cmdstring)
+	cmd := exec.Command("/bin/sh", "-c", cmdstring)
+	expected, _ := cmd.Output()
+
+	if string(expected) != base16encode_bytes(out) {
+		tt.Fatalf("expected: %s, got %s for AES CBC decrypt of 2_10.txt\n", string(expected), out)
+	}
+}
+
+func TestAESEncrypt_CBC(tt *t.T) {
+	a := AES{
+		// debug: true,
+	}
+	key := "YELLOW SUBMARINE"
+	iv := make([]byte, 16)
+
+	// extract plaintext to encrypt
+	input := "cat 2_10.txt | base64 -d"
+	cmdstring := fmt.Sprintf(input + " | " + openssl_iv, "-d", "-aes-128-cbc", base16encode_bytes([]byte(key)), base16encode_bytes(iv))
+	cmd := exec.Command("/bin/sh", "-c", cmdstring)
+	plainbytes, _ := cmd.Output()
+
+	out := a.Encrypt_CBC(plainbytes, []byte(key), iv)
+	expected := decodebase64_file("2_10.txt")
+
+	if !slices.Equal(expected, out) {
+		tt.Fatalf("expected %v for AES CBC encryption of %s, got %v\n", expected, string(plainbytes), out)
 	}
 }
