@@ -498,8 +498,9 @@ func (a *AES) Encrypt_CBC(cipherbytes, key, iv []byte) []byte {
 	a.iv = bytestowords(iv)
 	a.makeroundkeys(false)
 	result := a.encrypt_cbc(cipherbytes)
+	b16 := base16encode_bytes(result)
 
-	fmt.Printf("AES CBC encrypt complete: %s\n", string(result))
+	fmt.Printf("AES CBC encrypt complete: %s\n", b16)
 	a.debugf("raw bytes: %v\n\n", result)
 
 	return result

@@ -237,3 +237,13 @@ func TestPKCS7Pad(tt *t.T) {
 		tt.Fatalf("expected %s for PKCS7 pad of %s to len %d, got %s\n", e, input, 20, out)
 	}
 }
+
+func TestOracle(tt *t.T) {
+	trials := 100
+	for i := 0; i < trials; i += 1 {
+		oneblock := "namenamenamename"
+		if ! detectaes_cbc_ecb([]byte(oneblock + oneblock + oneblock)) {
+			tt.Fatalf("failed to guess AES encryption mode on trial: %d\n", i)
+		}
+	}
+}

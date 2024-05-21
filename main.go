@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"math"
+	"math/rand"
 	"strconv"
 	"os"
 	"bufio"
@@ -764,4 +765,81 @@ func pkcs7pad(ascii string, length_bytes int) string {
 		b = append(b, byte(n))
 	}
 	return base16encode_bytes(b)
+}
+
+func pkcs7pad_bytes(b []byte, length_bytes int) []byte {
+	n := length_bytes - len(b)
+	for i := 0; i < n; i += 1 {
+		b = append(b, byte(n))
+	}
+	return b
+}
+
+func randombyte(min, max byte) byte {
+	return byte(math.Round((rand.Float64() * float64(max - min)) + float64(min)))
+}
+
+func randomAESkey() []byte {
+	b := make([]byte, 16)
+	minbyte := byte(32)
+	maxbyte := byte(126)
+	for k, _ := range b {
+		b[k] = randombyte(minbyte, maxbyte)
+	}
+	return b
+}
+
+func randomencrypt(data []byte) ([]byte, string) {
+	minbyte := byte(32)
+	maxbyte := byte(126)
+
+	plainbytes := []byte(data)
+	hlen := int(math.Round((rand.Float64() * 5) + 5))
+	flen := int(math.Round((rand.Float64() * 5) + 5))
+	header := make([]byte, hlen)
+	footer := make([]byte, flen)
+	for k, _ := range header {
+		header[k] = randombyte(minbyte, maxbyte)
+	}
+	for k, _ := range footer {
+		footer[k] = randombyte(minbyte, maxbyte)
+	}
+	plainbytes = append(header, plainbytes...)
+	plainbytes = append(plainbytes, footer...)
+	padlen := int(math.Ceil(float64(len(plainbytes)) / float64(keylen_words * wordlen_bytes))) * 16
+	plainbytes = pkcs7pad_bytes(plainbytes, padlen)
+	fmt.Printf("random header of size %d: %v\nrandom footer of size: %d: %v\nall data (padded to %d len): %v\n\n", hlen, header, flen, footer, padlen, plainbytes)
+
+	a := AES{}
+	var cipherbytes []byte
+	mode := int(math.Round(rand.Float64()))
+	modestr := ""
+	if mode == 0 {
+		cipherbytes = a.Encrypt_ECB(plainbytes, randomAESkey())
+		modestr = "ECB"
+	} else {
+		cipherbytes = a.Encrypt_CBC(plainbytes, randomAESkey(), randomAESkey())
+		modestr = "CBC"
+	}
+	fmt.Printf("random mode: %d (%s), data => %v\n", mode, modestr, cipherbytes)
+
+	return cipherbytes, modestr
+}
+
+func detectaes_cbc_ecb(data []byte) bool {
+	// This is meant to be a problem about selecting the right _plaintext_
+	// such that it can be fed to a mystery algorithm
+	// and based on output, determine if ECB or not
+	// Thanks to https://crypto.stackexchange.com/questions/53274/cryptopals-challenge-2-11-distinguish-ecb-and-cbc-encryption?rq=1 for clarification
+	c, expectedmode := randomencrypt([]byte(data))
+	chex := base16encode_bytes(c)
+
+	// EBC is easily distinguished via repeated blocks. If not obviously ECB, assume CBC
+	foundmode := "CBC"
+	if findaesecb(chex) {
+		foundmode = "ECB"
+	}
+	fmt.Printf("\n%s\nappears to be AES in %s mode\nactual result: %s\n", chex, foundmode, expectedmode)
+
+	return foundmode == expectedmode
 }
