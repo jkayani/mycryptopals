@@ -843,3 +843,87 @@ func detectaes_cbc_ecb(data []byte) bool {
 
 	return foundmode == expectedmode
 }
+
+func decryptecb_oneblock(mystery []byte) []byte {
+	a := AES{}
+
+	// This value is unknown to us
+	key := randomAESkey()
+
+	// Determine cipher block size by counting bytes of ciphertext
+	// We "don't know" what the padding length is
+	blocksize_bytes := len(pkcs7pad_bytes(a.Encrypt_ECB([]byte{0}, key), blocksize_bytes))
+	fmt.Printf("determined that 'mystery algorithm' has block size %d bytes\n", blocksize_bytes)
+
+	knownword := "josh"
+	fullknownblock := knownword + knownword + knownword + knownword
+
+	// Verify cipher is operating in ECB mode
+	// We "don't know" which mode the cipher is using
+	if findaesecb(base16encode_bytes(a.Encrypt_ECB([]byte(fullknownblock + fullknownblock), key))) {
+		fmt.Printf("verified that 'mystery algorithm' uses ECB mode\n")
+	}
+
+	foundblocks := []word{word{}}
+	blockidx := 0
+
+	// If the mystery data's length isn't block-multiple, pretend there's an extra block
+	mysteryblockcount := len(mystery) / blocksize_bytes
+	if len(mystery) % blocksize_bytes > 0 {
+		mysteryblockcount = len(mystery) / blocksize_bytes + 1
+	}
+
+	// How is this a useful attack?
+	// It relies on forcing the mystery plaintext to bleed into the known block
+	// When would that happen in a practical scenario?
+	// After all, the mystery plaintext must be known to do this...
+	for i := 0; i < (blocksize_bytes * mysteryblockcount); i += blocksize_bytes {
+
+		// If the last block isn't full, just take what's there
+		var mysteryblock []byte
+		if len(mystery) - i < blocksize_bytes {
+			mysteryblock = mystery[i:]
+		} else {
+			mysteryblock = mystery[i : i + blocksize_bytes]
+		}
+
+		for k := 0; k < len(mysteryblock); k += 1 {
+			end := len(fullknownblock)
+			if len(foundblocks[blockidx]) > 0 {
+				end -= len(foundblocks[blockidx]) + 1
+			} else {
+				end -= 1
+			}
+			knownblock := []byte(fullknownblock[0 : end])
+			payload := pkcs7pad_bytes(append(knownblock, mysteryblock...), 2 * blocksize_bytes)
+			// fmt.Printf("%d bytes of block %d found so far, using knownblock: %s for payload of size %d\n", len(foundblocks[blockidx]), blockidx, knownblock, len(payload))
+			result := a.Encrypt_ECB(payload, key)[0 : blocksize_bytes]
+
+			for j := 0; j < 255; j += 1 {
+				guesspayload := append(knownblock, foundblocks[blockidx]...)
+				guesspayload = append(guesspayload, byte(j))
+				guesspayload = pkcs7pad_bytes(guesspayload, 2 * blocksize_bytes)
+				// fmt.Printf("guessing byte %d (%c) as last byte in payload: %s\n", j, j, string(guesspayload))
+
+				r := a.Encrypt_ECB(guesspayload, key)[0 : blocksize_bytes]
+				if slices.Equal(r, result) {
+					// fmt.Printf("%dth byte of block %d is: %d (%c)\n", k, blockidx, j, byte(j))
+					foundblocks[blockidx] = append(foundblocks[blockidx], byte(j))
+					break
+				}
+			}
+		}
+
+		// Last block may not be a full block, and that's OK
+		// Every other block should have blocksize_bytes at this point
+		if len(foundblocks[blockidx]) < blocksize_bytes && blockidx < mysteryblockcount - 1 {
+			panic(fmt.Sprintf("16 bytes of mystery data should have been found, got %d => %v\n", len(foundblocks[blockidx]), foundblocks[blockidx]))
+		}
+		blockidx += 1
+		foundblocks = append(foundblocks, word{})
+	}
+
+	final := wordstobytes(foundblocks)
+	fmt.Printf("mystery value: %s\n", final)
+	return final
+}

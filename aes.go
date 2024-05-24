@@ -67,6 +67,7 @@ var (
 const (
 	wordlen_bytes = 4
 	keylen_words = 4
+	blocksize_bytes = 16
 	ROUND_COUNT = 11
 )
 
@@ -390,9 +391,9 @@ func (a *AES) Encrypt_ECB(cipherbytes, key []byte) []byte {
 	a.key = key
 	a.makeroundkeys(false)
 	result := a.encrypt_ecb()
-	b16 := base16encode_bytes(result)
+	// b16 := base16encode_bytes(result)
 
-	fmt.Printf("AES ECB encrypt complete: %s\n", b16)
+	// fmt.Printf("AES ECB encrypt complete: %s\n", b16)
 	a.debugf("raw bytes: %v\n\n", result)
 
 	return result

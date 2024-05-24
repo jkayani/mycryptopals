@@ -19,6 +19,8 @@
 
 - CBC is "chained" between blocks, XORing each plaintext block with previous ciphertext block or IV. Unlike ECB mode, this means encryption cannot be done on all blocks in parallel: must be done serially to feed output into next input
 
+#### ECB/CBC oracle
+
 By supplying a plaintext where a known string with length = 1 block is embedded, a mystery algorithm using either ECB or CBC can be differentiated due to the flaw of ECB above:
 
 ```
@@ -52,3 +54,30 @@ M = len(<random-data>) % SIZE
 ```
 
 This requires a min of 3 blocks of `<known-string>` to guarantee a repeated block, which can be used as above to identify if the resulting ciphertext was made with ECB or CBC mode.
+
+#### ECB one byte at a time
+
+Above technique can be extended to reveal mystery plaintexts, if the plaintext can be accessed in a way that it can be fed to an ECB mode oracle that operates under a fixed key
+
+- Prepare a `<known-string>` with length = 1 block
+- Append `<mystery-string>` (of length 1 block) to `<known-string> - last byte` to make a string `<apended>`
+- Encrypt `<apended>`: the last block will be the encryption of `<known-string> + first byte of <mystery-string>`
+- Try encrypting all possibilties for the last byte of `<known-string> - last byte + mystery byte` until the result is the same encrypted value as seen previously
+  - Note: after the first mystery byte is found, the guesses remain narrowed by using the previously found byte as part of the guess
+  - e.g, if first byte is found to be X, make sure to use `<known-string> - 2 + X + <guess-value>` on each guess
+- Repeat for the rest of the block, re-constructing `<apended>` by subtracting last 2 bytes of `<known-string>`...
+- Repeat for any more blocks of the arbitrary string
+
+```
+block 1: SIZE - 1 bytes of <known-string> + 1st byte of <mystery-string>
+block 2: SIZE - 1 bytes of <mystery-string>
+...
+
+block 1: SIZE - 2 bytes of <known-string> + 1st 2 bytes of <mystery-string>
+block 2: SIZE - 2 bytes of <mystery-string>
+...
+
+block 1: 0 bytes of <known-string> + all SIZE bytes of <mystery-string>
+```
+
+This works because of the stateless nature of ECB and because the range of possibilities to guess is narrowed significantly by only varying the last byte of the last block
