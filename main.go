@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"os"
 	"bufio"
+	"strings"
 )
 
 func main() {
@@ -926,4 +927,110 @@ func decryptecb_oneblock(mystery []byte) []byte {
 	final := wordstobytes(foundblocks)
 	fmt.Printf("mystery value: %s\n", final)
 	return final
+}
+
+// Make a function that returns an encrypted profile string given an email address: email=e&role=user
+// Determine how to mutate a ciphertext such after decryption (simulated login), it yields: email=e&role=admin
+func ecb_cutpaste() string {
+	profile_for := func(email string) string {
+		return fmt.Sprintf("email=%s&role=user", strings.ReplaceAll(strings.ReplaceAll(email, "&", ""), "=", ""))
+	}
+	parse_profile := func(profile string) map[string]string {
+		pairs := map[string]string{}
+		inkey := true
+		var key, value string
+		for i := 0; i < len(profile); i += 1 {
+			s := profile[i:i + 1]
+			if s == "&" {
+				inkey = true
+				pairs[key] = value
+				key, value = "", ""
+			} else if s == "=" {
+				inkey = false
+			} else {
+				if inkey {
+					key += s
+				} else {
+					value += s
+				}
+			}
+		}
+		pairs[key] = value
+		return pairs
+	}
+	key := randomAESkey()
+	a := AES{}
+	oracle := func(email string) []byte {
+		in := []byte(profile_for(email))
+		plen := len(in) / blocksize_bytes
+		if len(in) % blocksize_bytes != 0 {
+			plen += 1
+		}
+		in = pkcs7pad_bytes(in, plen * blocksize_bytes)
+		fmt.Printf("padded input to len: %d\n", len(in))
+		return a.Encrypt_ECB(in, key)
+	}
+	login := func(profilenc []byte) string {
+		d := (a.Decrypt_ECB(profilenc, key))
+		
+		// Is this intended? This part is crucial to the attack
+		// It removes any padding bytes from decrypted data
+		// Should this be part of the Decrypt_ECB func?
+		last := d[len(d) - 1]
+		plen := 0
+		for i := len(d) - 1; i >= len(d) - int(last); i -= 1 {
+			if d[i] != last {
+				plen = 0
+				break
+			}
+			plen += 1
+		}
+		fmt.Printf("detected %d padding bytes of %d\n", plen, last)
+		return string(d[0:len(d) - plen])
+	}
+
+	// Outline of attack:
+	// Use a long enough email adddress to force resulting ciphertext to have the role value in a separate block
+	// The first 2 blocks of resulting ciphertext will be useful (email=??&role=)
+	// Then, construct a long email address to force the word admin to be in the 2nd block
+	// Pad the block containing "admin" with appropriate padding char that will be stripped off during decryption
+	// Combine the first 2 blocks from before with the 2nd block of above to yield target ciphertext
+	// This will decrypt to an encoded profile with role=admin
+
+	// Assumptions:
+	// email does not have to be valid (no @domain.com)
+	// Padding bytes are removed after decryption and before a profile's role value
+
+	emaillen := len("email=") 
+	rolelen := len("&role=")
+	padlen := (blocksize_bytes - emaillen) + (blocksize_bytes - rolelen)
+	roleownblock := ""
+	for i := 0; i < padlen; i += 1 {
+		roleownblock += "a"
+	}
+	// fmt.Printf("pad to len %d to force role to be in separate block => %s\n", padlen, roleownblock)
+	roleownblockcipher := oracle(roleownblock)
+	// fmt.Printf("%v\n", roleownblockcipher)
+
+	headerlen := blocksize_bytes - emaillen
+	adminlen := len("admin")
+	footerlen := blocksize_bytes - adminlen
+	adminownblock := ""
+	for i := 0; i < headerlen; i += 1 {
+		adminownblock += "z"
+	}
+	adminownblock += "admin"
+	for i := 0; i < footerlen; i += 1 {
+		adminownblock += fmt.Sprintf("%c", blocksize_bytes - adminlen)
+	}
+	// fmt.Printf("pad to len %d to force admin to be in 2nd block => %s\n", headerlen + adminlen + footerlen, adminownblock)
+	adminownblockcipher := oracle(adminownblock)
+	// fmt.Printf("%v\n", adminownblockcipher)
+
+	targetciphertext := append(roleownblockcipher[0 : blocksize_bytes * 2], adminownblockcipher[blocksize_bytes : blocksize_bytes * 2]...)
+	// fmt.Printf("target cipher bytes:\n%v\n", targetciphertext)
+
+	result := login(targetciphertext)
+	fmt.Printf("login attempt: %s\n", result)
+	return parse_profile(result)["role"]
 }

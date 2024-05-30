@@ -255,3 +255,9 @@ func TestDecryptECB_OneBlock(tt *t.T) {
 		tt.Fatalf("failed to decrypt apended mystery text in ECB mode, expected: %v\n, got: %v\n", mystery, out)
 	}
 }
+
+func TestECB_CutPaste(tt *t.T) {
+	if role := ecb_cutpaste(); role != "admin" {
+		tt.Fatalf("failed to set role=admin via ECB ciphertext, got role=%s\n", role)
+	}
+}
