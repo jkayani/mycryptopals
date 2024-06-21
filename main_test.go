@@ -261,3 +261,11 @@ func TestECB_CutPaste(tt *t.T) {
 		tt.Fatalf("failed to set role=admin via ECB ciphertext, got role=%s\n", role)
 	}
 }
+
+func TestECB_DecryptRandom(tt *t.T) {
+	mystery := base64decode("Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK")
+
+	if out := decryptecb_random(mystery); string(out) != string(mystery) {
+		tt.Fatalf("failed to decrypt apended mystery text in ECB mode, expected: %v\n, got: %v\n", mystery, out)
+	}
+}

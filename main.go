@@ -1034,3 +1034,170 @@ func ecb_cutpaste() string {
 	fmt.Printf("login attempt: %s\n", result)
 	return parse_profile(result)["role"]
 }
+
+func blocklen(in []byte) int {
+	blocklen := len(in) / blocksize_bytes
+	if len(in) % blocksize_bytes != 0 {
+		blocklen += 1
+	}
+	return blocklen
+}
+
+// One byte at a time, determine contents of mystery data
+// Oracle will prefix plaintext with fixed len random data each time
+// ASSUMPTION: oracle uses the same fixed len random data for all calls, unclear from problem statement
+
+// before: <known-string>m<ysery-text>
+// 				 [..............][..........]
+// guess every value for m comparing 1st block of each ciphertext until same ciphertext is returned
+
+// now: <rand><known-string>m<ystery-text>
+// 			[..............][..........]
+func decryptecb_random(mystery []byte) []byte {
+	// Server starts here
+
+	randomprefixlen := rand.Intn(16)
+	randomprefix := []byte{}
+	fmt.Printf("generating %d random bytes of data\n", randomprefixlen)
+	for i := 0; i < randomprefixlen; i += 1 {
+		randomprefix = append(randomprefix, randombyte(0, 255))
+	}
+	key := randomAESkey()
+	a := AES{}
+
+	// Just like before, it's not clear to me how this attack is useful
+	// In order to "bleed" blocks of mystery data beyond the first one into the "known block", 
+	// block-level access to mystery data (via oracle) is required
+	// blockidx is the param to specify which block of mystery data to use for oracle output
+	// -1 means use all the mystery data
+	oracle := func(input []byte, blockidx int) []byte {
+		var in []byte
+		if blockidx == -1 {
+			in = append(append(randomprefix, input...), mystery...)
+		} else {
+			s := blocksize_bytes * blockidx
+			in = append(append(randomprefix, input...), mystery[s:s + blocksize_bytes]...)
+		}
+		return a.Encrypt_ECB(pkcs7pad_bytes(in, blocklen(in) * blocksize_bytes), key)
+	}
+
+	// Attack starts here
+
+	// Since the known block + full len of mystery data is known to attacker (ASSUMPTION), 
+	// determine how many padding slots there would be of ECB encrypted known block + mystery
+	knownstring := "josh"
+	knownblock := []byte(knownstring + knownstring + knownstring + knownstring)
+	attackerinput_blocks := blocklen(mystery) + 1
+	paddingcnt_attacker := ((attackerinput_blocks) * 16) - (len(mystery) + blocksize_bytes)
+	// fmt.Printf("calculated mystery data and known block to be %d blocks and have %d bytes of padding\n", attackerinput_blocks, paddingcnt_attacker)
+
+	// Core idea is to determine how much random data the oracle is prefixing
+	// Do this by watching the length of ciphertext returned for ever-increasing input lengths
+	// There will be 3 distinct cases depending on how much random data there is:
+
+	res_attacker := oracle(knownblock, -1)
+	res_blocklen := blocklen(res_attacker)
+	target_blocklen := res_blocklen + 1
+	random_len_attacker := 0
+
+	// case 3:
+	// random bytes > padding slots => add 0 bytes, and will overflow into additional blocks
+	// => add 1 byte until overflow into another additional block (X)
+	// => random len = padding slots + ((block_diff - 1)) * 16) + (16 - X)
+	if res_blocklen > attackerinput_blocks {
+		// fmt.Printf("oracle output has %d blocks of ciphertext, mystery data with known block has %d: random data > padding slots\n", res_blocklen, attackerinput_blocks)
+		random_len_attacker = paddingcnt_attacker + (res_blocklen - attackerinput_blocks - 1) * blocksize_bytes
+		paddingcnt_attacker = blocksize_bytes
+	}
+
+	input_attacker := append(knownblock, byte(0))
+	extrabytes_attacker := 1
+	for {
+		out := oracle(input_attacker, -1)
+		// fmt.Printf("adding %d extra bytes\n", extrabytes_attacker)
+
+		// case 1
+		// random bytes < padding slots => add 1 byte until overflow into additional block (X)
+		// => random len = padding slots - X
+		// case 2	
+		// random bytes == padding slots => will overflow immediately after adding 1 byte (X)
+		// => random len = padding slots
+		if blocklen(out) == target_blocklen {
+			// fmt.Printf("after adding %d bytes, cipherlen changed from %d to %d blocks\n", extrabytes_attacker, res_blocklen, target_blocklen)
+			random_len_attacker += paddingcnt_attacker - (extrabytes_attacker - 1)
+			break
+		}
+		input_attacker = append(input_attacker, byte(0))
+		extrabytes_attacker += 1
+	}
+	fmt.Printf("attacker has determined that oracle server is prepending %d bytes of random data\n", random_len_attacker)
+
+	// Now that length of random data is known, mitigate by adding null bytes
+	// to fill up to N blocks exactly
+	// That will let us be sure the following block contains the <known-block> combined with mystery data for the attack
+	padding_attacker := []byte{}
+	for i := 0; i < blocksize_bytes - (random_len_attacker % blocksize_bytes); i += 1 {
+		padding_attacker = append(padding_attacker, byte(0))
+	}
+
+	// Conceptually, the target_block is the one _after_ the last one with random data and its padding
+	// That would be the random len in blocks, + 1. But then subtract 1 since blocks are 0-indexed
+	target_blockidx := random_len_attacker / blocksize_bytes
+
+	// If the random data bleeds beyond a "full" block, use the one after the block with partially random data
+	if len(padding_attacker) > 0 {
+		target_blockidx += 1
+	}
+	// fmt.Printf("calls to oracle prefixed with %d bytes of padding; target block is %d\n", len(padding_attacker), target_blockidx)
+
+	// Repeat attack as last time
+	foundblocks := []word{[]byte{}}
+	blockidx := 0
+	mysterylen_blocks := blocklen(mystery)
+	for i := 0; i < (blocksize_bytes * mysterylen_blocks); i += blocksize_bytes {
+
+		// If the last block isn't full, just take what's there
+		var mysteryblock []byte
+		if len(mystery) - i < blocksize_bytes {
+			mysteryblock = mystery[i:]
+		} else {
+			mysteryblock = mystery[i : i + blocksize_bytes]
+		}
+
+		for k := 0; k < len(mysteryblock); k += 1 {
+			end := len(knownblock)
+			if len(foundblocks[blockidx]) > 0 {
+				end -= len(foundblocks[blockidx]) + 1
+			} else {
+				end -= 1
+			}
+			input := append(padding_attacker, knownblock[0 : end]...)
+			s := blocksize_bytes * target_blockidx
+			result := oracle(input, blockidx)[s:s + blocksize_bytes]
+
+			for j := 0; j < 255; j += 1 {
+				guesspayload := append(append(input, foundblocks[blockidx]...), byte(j))
+				// fmt.Printf("guessing byte %d (%c) as last byte in payload: %s\n", j, j, string(guesspayload))
+
+				r := oracle(guesspayload, blockidx)[s:s + blocksize_bytes]
+				if slices.Equal(r, result) {
+					// fmt.Printf("%dth byte of block %d of %d is: %d (%c)\n", k, blockidx, mysterylen_blocks, j, byte(j))
+					foundblocks[blockidx] = append(foundblocks[blockidx], byte(j))
+					break
+				}
+			}
+		}
+
+		// Last block may not be a full block, and that's OK
+		// Every other block should have blocksize_bytes at this point
+		if len(foundblocks[blockidx]) < blocksize_bytes && blockidx < mysterylen_blocks - 1 {
+			panic(fmt.Sprintf("16 bytes of mystery data should have been found, got %d => %v\n", len(foundblocks[blockidx]), foundblocks[blockidx]))
+		}
+		blockidx += 1
+		foundblocks = append(foundblocks, word{})
+	}
+
+	final := wordstobytes(foundblocks)
+	fmt.Printf("mystery value: %s\n", final)
+	return final
+}
