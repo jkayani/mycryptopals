@@ -1201,3 +1201,13 @@ func decryptecb_random(mystery []byte) []byte {
 	fmt.Printf("mystery value: %s\n", final)
 	return final
 }
+
+func validatepkcs7padding(data []byte) ([]byte, error) {
+	count := int(data[len(data) - 1])
+	for i, j := 0, len(data) - 1; i < count; i, j = i + 1, j - 1 {
+		if data[j] != byte(count) {
+			return nil, fmt.Errorf("error: byte %d has value %v, not %d as expected\n", j, data[j], count)
+		}
+	}
+	return data[0:len(data) - count], nil
+}

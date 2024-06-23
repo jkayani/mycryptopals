@@ -269,3 +269,40 @@ func TestECB_DecryptRandom(tt *t.T) {
 		tt.Fatalf("failed to decrypt apended mystery text in ECB mode, expected: %v\n, got: %v\n", mystery, out)
 	}
 }
+
+func Test_ValidatePKCS7Padding(tt *t.T) {
+	type s struct {
+		input []byte
+		expected []byte
+	}
+	expected := []byte("ICE ICE BABY")
+
+	cases := []s{
+		s{
+			[]byte("ICE ICE BABY\x04\x04\x04\x04"),
+			expected,
+		},
+		s{
+			[]byte("ICE ICE BABY\x04\x04\x04"),
+			nil,
+		},
+		s{
+			[]byte("ICE ICE BABY\x05\x05\x05\x05"),
+			nil,
+		},
+		s{
+			[]byte("ICE ICE BABY\x01\x02\x03\x04"),
+			nil,
+		},
+		s{
+			[]byte("ICE ICE BABY\x04\x04\x04\x04\x04"),
+			append(expected, byte(4)),
+		},
+	}
+
+	for _, c := range cases {
+		if out, _ := validatepkcs7padding(c.input); !slices.Equal(out, c.expected) {
+			tt.Fatalf("expected %v for removed padding off %v, got: %v\n", c.expected, c.input, out)
+		}
+	}
+}
