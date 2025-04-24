@@ -929,6 +929,34 @@ func decryptecb_oneblock(mystery []byte) []byte {
 	return final
 }
 
+func parse_kv(input, mapchar, delimitter, escape string) (pairs map[string]string) {
+	pairs = make(map[string]string)
+	var key, value []byte
+	inkey, escaped := true, false
+	for k, _ := range input {
+		if input[k:k + 1] == escape {
+			escaped = !escaped
+		}
+		if input[k:k + 1] == delimitter && ! escaped {
+			inkey = true
+			pairs[string(key)] = string(value)
+			key, value = []byte{}, []byte{}
+			continue
+		} else if input[k:k + 1] == mapchar && ! escaped {
+			inkey = false
+			continue
+		}
+
+		if inkey {
+			key = append(key, input[k])
+		} else {
+			value = append(value, input[k])
+		}
+	}
+	pairs[string(key)] = string(value)
+	return
+}
+
 // Make a function that returns an encrypted profile string given an email address: email=e&role=user
 // Determine how to mutate a ciphertext such after decryption (simulated login), it yields: email=e&role=admin
 func ecb_cutpaste() string {
@@ -936,27 +964,7 @@ func ecb_cutpaste() string {
 		return fmt.Sprintf("email=%s&role=user", strings.ReplaceAll(strings.ReplaceAll(email, "&", ""), "=", ""))
 	}
 	parse_profile := func(profile string) map[string]string {
-		pairs := map[string]string{}
-		inkey := true
-		var key, value string
-		for i := 0; i < len(profile); i += 1 {
-			s := profile[i:i + 1]
-			if s == "&" {
-				inkey = true
-				pairs[key] = value
-				key, value = "", ""
-			} else if s == "=" {
-				inkey = false
-			} else {
-				if inkey {
-					key += s
-				} else {
-					value += s
-				}
-			}
-		}
-		pairs[key] = value
-		return pairs
+		return parse_kv(profile, "=", "&", "")
 	}
 	key := randomAESkey()
 	a := AES{}
@@ -1210,4 +1218,73 @@ func validatepkcs7padding(data []byte) ([]byte, error) {
 		}
 	}
 	return data[0:len(data) - count], nil
+}
+
+func cbc_bitflip() bool {
+	a := AES{debug: false}
+	key, iv := randomAESkey(), randomAESkey()
+	to_prepend := "comment1=cooking%20MCs;userdata="
+	to_append := ";comment2=%20like%20a%20pound%20of%20bacon"
+	oracle := func(input string) []byte {
+		escaped_bytes := []byte{}
+		for k, _ := range input {
+			b := input[k]
+			a := []byte{b}
+			if b == 0x3b || b == 0x3d {
+				a = []byte{0x22, b, 0x22}
+			}
+			escaped_bytes = append(escaped_bytes, a...)
+		}
+		plainbytes := append([]byte(to_prepend), escaped_bytes...)
+		plainbytes = append(plainbytes, []byte(to_append)...)
+		// fmt.Printf("blocklen: %s: %d => %d\n", string(plainbytes), len(plainbytes), blocklen(plainbytes))
+		plainbytes_padded := pkcs7pad_bytes(plainbytes, blocklen(plainbytes) * blocksize_bytes)
+
+		return a.Encrypt_CBC(plainbytes_padded, key, iv)
+	}
+	check := func(cipherbytes []byte) bool {
+		res := a.Decrypt_CBC(cipherbytes, key, iv)
+		fmt.Printf("cbc_bitflip check decrypted result: %s\n%v\n", res, res)
+		pairs := parse_kv(string(res), "=", ";", "\"")
+		fmt.Printf("cbc_bitflip: parsed k/v pairs: \n%v\n", pairs)
+
+		p, ok := pairs["admin"]
+		return ok && p == "true"
+	}
+
+	// Attack starts here
+
+	// Z = EBC_Encrypt(X xor Y)
+	// X = ;comment2=%20like%20a%20pound%20of%20bacon
+	// A = ;admin=true
+	// Y = ciphertext block prior to CBC_Encrypt(to_prepend + input + X)
+
+	// ECB_Decrypt(Z) XOR Y = X (by defn of CBC_Decrypt)
+	// => ECB_Decrypt(Z) = X xor Y
+	// (X xor Y) xor A => bits to flip => Y'
+	// ECB_Decrypt(Z) xor Y' = (X xor Y) xor Y' = A
+
+	att_goal := ";admin=true;"
+	// Since to_prepend is 32 bytes exactly (2 blocks), attacker doesn't need to supply an input at all
+	att_cipherbytes := oracle("") 
+	// fmt.Printf("cbc_bitflip: attacker is given ciphertext:\n%v\n", att_cipherbytes)
+	att_second_cipherblock := att_cipherbytes[blocksize_bytes:blocksize_bytes * 2]
+	att_third_cipherblock := att_cipherbytes[blocksize_bytes * 2:]
+
+	// => ECB_Decrypt(Z) = X xor Y
+	// XOR the last block of plaintext with the preceding ciphertext block
+	// This yields the input to the EBC_Encrypt func, aka what ECB_Decrypt would give
+	att_lhs := fixedxor([]byte(to_append)[0:blocksize_bytes], att_second_cipherblock)
+	// fmt.Printf("cbc_bitflip: ECB decrypt result of %v\n%v\n\n", att_second_cipherblock, att_lhs)
+
+	// (X xor Y) xor A => bits to flip => Y'
+	// XOR the above with the desired string to give the bytes needed to replace the preceding cipherbytes block
+	// XOR will set the bits whenever a bit needs to be flipped to yield our desired string, exactly what we want
+	att_modified_second_cipherblock := fixedxor(att_lhs, pkcs7pad_bytes([]byte(att_goal), blocksize_bytes))
+	// fmt.Printf("cbc_bitflip: modified second block: %v\n\n", att_modified_second_cipherblock)
+
+	// Put the modified cipherblock together with the untouched third cipherblock
+	// ECB_Decrypt will be called on the third cipherblock
+	// It will be XORed with our modified preceding cipherblock and yield the desired string
+	return check(append(att_modified_second_cipherblock, att_third_cipherblock...))
 }

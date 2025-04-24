@@ -81,3 +81,19 @@ block 1: 0 bytes of <known-string> + all SIZE bytes of <mystery-string>
 ```
 
 This works because of the stateless nature of ECB and because the range of possibilities to guess is narrowed significantly by only varying the last byte of the last block
+
+#### CBC bitflip
+
+CBC works as follows:
+
+- XOR plaintext block with preceding ciphertext block (or IV)
+- ECB_Encrypt the result
+
+In a situation with an N-block ciphertext where:
+
+- Attacker controls the block boundaries via their input (e.g, spill data into an adjacent block)
+- Attacker knows the _plaintext_ of block N
+- There is no validation of the ciphertext (e.g, no hashing or other integrity control)
+- There is no harm from scrambling any given block of the ciphertext (e.g, it's OK for block N - 1 to decrypt into garbage)
+
+The attacker can modify the ciphertext so that when decrypted, block N decrypts into a desired string. This is because CBC will XOR the result of `EBC_Decrypt`ing block N with the block N - 1 ciphertext. The block N - 1 ciphertext can be replaced so that when XORed with `EBC_Decrypt(block N)` the desired string is generated

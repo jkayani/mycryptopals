@@ -306,3 +306,9 @@ func Test_ValidatePKCS7Padding(tt *t.T) {
 		}
 	}
 }
+
+func Test_CBC_Bitflip(tt *t.T) {
+	if ! cbc_bitflip() {
+		tt.Fatalf("expected true, got false\n")
+	}
+}
