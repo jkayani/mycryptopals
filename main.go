@@ -929,28 +929,38 @@ func decryptecb_oneblock(mystery []byte) []byte {
 	return final
 }
 
-func parse_kv(input, mapchar, delimitter, escape string) (pairs map[string]string) {
+func parse_kv(input []byte, mapchar, delimitter, escape byte) (pairs map[string]string) {
 	pairs = make(map[string]string)
 	var key, value []byte
 	inkey, escaped := true, false
-	for k, _ := range input {
-		if input[k:k + 1] == escape {
+
+	// With cbc_bitflip, it's possible for one of the bytes from the scrambled cipherblock to
+	// yield the escape char which ruins the attack
+	// Only consider it as escape if used correctly (opening and closing quotes)
+	escapecnt := 0
+	for _, v := range input {
+		if v == escape {
+			escapecnt += 1
+		}
+	}
+	for _, v := range input {
+		if v == escape && escapecnt % 2 == 0 {
 			escaped = !escaped
 		}
-		if input[k:k + 1] == delimitter && ! escaped {
+		if v == delimitter && ! escaped {
 			inkey = true
 			pairs[string(key)] = string(value)
 			key, value = []byte{}, []byte{}
 			continue
-		} else if input[k:k + 1] == mapchar && ! escaped {
+		} else if v == mapchar && ! escaped {
 			inkey = false
 			continue
 		}
 
 		if inkey {
-			key = append(key, input[k])
+			key = append(key, v)
 		} else {
-			value = append(value, input[k])
+			value = append(value, v)
 		}
 	}
 	pairs[string(key)] = string(value)
@@ -964,7 +974,7 @@ func ecb_cutpaste() string {
 		return fmt.Sprintf("email=%s&role=user", strings.ReplaceAll(strings.ReplaceAll(email, "&", ""), "=", ""))
 	}
 	parse_profile := func(profile string) map[string]string {
-		return parse_kv(profile, "=", "&", "")
+		return parse_kv([]byte(profile), 0x3d, 0x26, 0x00)
 	}
 	key := randomAESkey()
 	a := AES{}
@@ -1245,7 +1255,7 @@ func cbc_bitflip() bool {
 	check := func(cipherbytes []byte) bool {
 		res := a.Decrypt_CBC(cipherbytes, key, iv)
 		fmt.Printf("cbc_bitflip check decrypted result: %s\n%v\n", res, res)
-		pairs := parse_kv(string(res), "=", ";", "\"")
+		pairs := parse_kv(res, 0x3d, 0x3b, 0x22)
 		fmt.Printf("cbc_bitflip: parsed k/v pairs: \n%v\n", pairs)
 
 		p, ok := pairs["admin"]
@@ -1268,8 +1278,9 @@ func cbc_bitflip() bool {
 	// Since to_prepend is 32 bytes exactly (2 blocks), attacker doesn't need to supply an input at all
 	att_cipherbytes := oracle("") 
 	// fmt.Printf("cbc_bitflip: attacker is given ciphertext:\n%v\n", att_cipherbytes)
-	att_second_cipherblock := att_cipherbytes[blocksize_bytes:blocksize_bytes * 2]
-	att_third_cipherblock := att_cipherbytes[blocksize_bytes * 2:]
+	preceding_blocks := 1
+	att_second_cipherblock := att_cipherbytes[blocksize_bytes * preceding_blocks:blocksize_bytes * (preceding_blocks + 1)]
+	att_third_cipherblock := att_cipherbytes[blocksize_bytes * (preceding_blocks + 1):]
 
 	// => ECB_Decrypt(Z) = X xor Y
 	// XOR the last block of plaintext with the preceding ciphertext block
