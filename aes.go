@@ -438,8 +438,7 @@ func (a *AES) Decrypt_CBC(cipherbytes, key, iv []byte) []byte {
 	a.makeroundkeys(true)
 	result := a.decrypt_cbc(cipherbytes)
 
-	fmt.Printf("AES CBC decrypt complete: %s\n", string(result))
-	a.debugf("raw bytes: %v\n\n", result)
+	a.debugf("AES CBC decrypt complete: %s\nraw bytes: %v\n\n", string(result), result)
 
 	return result
 }
@@ -456,8 +455,7 @@ func (a *AES) DecryptFile_CBC(filename, key string, iv []byte) []byte {
 	a.makeroundkeys(true)
 	result := a.decrypt_cbc(rawbytes)
 
-	fmt.Printf("AES CBC decrypt complete: %s\n", string(result))
-	a.debugf("raw bytes: %v\n\n", result)
+	a.debugf("AES CBC decrypt complete: %s\nraw bytes: %v\n\n", string(result), result)
 
 	return result
 }
@@ -475,7 +473,7 @@ func (a *AES) encrypt_cbc(fullcipherbytes []byte) []byte {
 		if i > 0 {
 			secondblock = words[i - 4 : i]
 		}
-		a.debugf("encrypt_cbc: first block: %v; second block: %v\n", firstblock, secondblock)
+		a.debugf("encrypt_cbc: block num: %d; first block: %v; second block: %v \n", i, firstblock, secondblock)
 
 		for k, w := range firstblock {
 			firstblock[k] = fixedxor(w, secondblock[k])

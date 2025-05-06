@@ -97,3 +97,120 @@ In a situation with an N-block ciphertext where:
 - There is no harm from scrambling any given block of the ciphertext (e.g, it's OK for block N - 1 to decrypt into garbage)
 
 The attacker can modify the ciphertext so that when decrypted, block N decrypts into a desired string. This is because CBC will XOR the result of `EBC_Decrypt`ing block N with the block N - 1 ciphertext. The block N - 1 ciphertext can be replaced so that when XORed with `EBC_Decrypt(block N)` the desired string is generated
+
+#### CBC padding oracle
+
+My original approach was:
+
+- Find the padding value, by starting from end of preceding cipherblock, and modifying each byte until the oracle passes. The byte position at which the oracle stops failing and starts passing implies where the padding stops, thus revealing the padding. If this condition is never met, padding is 0
+
+- (Assuming there is padding > 0), set the target padding to padding + 1, and starting from end - 1 of preceding cipherblock, modify the byte in that position (subsitute each possible byte) until the oracle passes. This information indirectly reveals the EBC_Decrypt of the target byte, which can XOR'ed with unmodified corresponding byte from preceding cipherblock to reveal plaintext
+
+- Repeat above for the remainder of the last block
+
+<details>
+<pre>
+	// Now that padding byte is known to be N
+	// Replace padding bytes with N + 1. Goal is to get byte k at pos len - N
+	// Replace kth byte of preceding ciphertext until the oracle passes (B')
+	// This means: ECB_Decrypt(cipher)_k xor B' = N + 1
+	// ECB_Decrypt(cipher)_k = (N + 1) xor B'
+	// plain_k = ECB_Decrypt(cipher)_k xor cipher_prev_k
+	// = (N + 1) xor B' xor cipher_prev_k
+
+	// TODO: how to extend this attack beyond the last cipherblock?
+	// After the last cipherblock is decrypted, the attack fails
+	// since there is no way to set padding >= 16 without overwriting the current target block 
+
+	// In other words: this attack fails if no there is padding
+
+	att_plainbytes := make([]byte, att_padding_len)
+	for i := 0; i < att_padding_len; i += 1 {
+		att_plainbytes[i] = byte(att_padding_len)
+	}
+	target_block := att_blocklen - 1
+	for j := len(att_cipherbytes) - att_padding_len - 1; j >= 48; j -= 1 {
+		att_goal_pos := j
+		att_goal_pos_in_block := att_goal_pos - (blocksize_bytes * (att_goal_pos / blocksize_bytes))
+		att_new_padding_byte := byte(att_padding_len) + byte(blocksize_bytes - att_padding_len - att_goal_pos_in_block)
+		fmt.Printf("original padding: %d; abs goal pos: %d; relative goal pos: %d; new padding: %d\n", att_padding_len, att_goal_pos, att_goal_pos_in_block, att_new_padding_byte)
+
+		if len(att_plainbytes) > 0 && len(att_plainbytes) % blocksize_bytes == 0 {
+			target_block -= 1
+		}
+		var att_modified_preceding_block []byte
+		if target_block == 0 {
+			att_modified_preceding_block = slices.Clone(att_iv)
+		} else {
+			att_modified_preceding_block = slices.Clone(nth_block(att_cipherbytes, target_block - 1))
+		}
+		fmt.Printf("target block: %d: %v\n", target_block, att_modified_preceding_block)
+
+		for i, k := att_goal_pos + 1, att_goal_pos_in_block + 1; i < len(att_cipherbytes); i, k = i + 1, k + 1 {
+			// Apply the CBC bitfip attack to guarantee the "new" padding bytes are Y=N + 1
+			// ? xor X = N
+			// ? = N xor X
+			// ? xor X = Y
+			// X' = Y xor ?
+			// X' = Y xor (N xor X)
+			att_known_plainbyte := att_plainbytes[len(att_plainbytes) - (i - att_goal_pos)]
+			fmt.Printf("modifying byte %d in preceding cipherblock knowing corresponding plainbyte in next block is: %d (%c)\n", i, att_known_plainbyte, att_known_plainbyte)
+			att_modified_preceding_block[k] = xorbytes(att_new_padding_byte, xorbytes(att_known_plainbyte, att_modified_preceding_block[k]))
+		}
+		fmt.Printf("modified cipherblock: %v\n", att_modified_preceding_block)
+		var result byte
+		found := false
+		for i := 0; i < 256; i += 1 {
+			att_modified_preceding_block[att_goal_pos_in_block] = byte(i)
+
+			att_modified_cipherbytes := append(slices.Clone(att_cipherbytes[0:blocksize_bytes * (target_block - 1)]), att_modified_preceding_block...)
+			att_modified_cipherbytes = append(att_modified_cipherbytes, att_cipherbytes[blocksize_bytes * target_block:]...)
+
+			// fmt.Printf("old: %v\nnew: %v\n", att_cipherbytes, att_modified_cipherbytes)
+
+			if second(att_modified_cipherbytes) {
+				fmt.Printf("using byte value %v causes oracle to pass\n", i)
+				result = byte(i)
+				found = true
+				break
+			}
+		}
+		if !found {
+			panic("no byte value caused oracle to pass\n")
+		}
+		att_plain_byte := xorbytes(att_new_padding_byte, xorbytes(result, nth_block(att_cipherbytes, target_block - 1)[att_goal_pos_in_block]))
+		fmt.Printf("attacker determined plain text byte is: %v (%c), real answer: %v (%c)\n", att_plain_byte, att_plain_byte, plaintexts[n][att_goal_pos], plaintexts[n][att_goal_pos])
+		if att_plain_byte != plaintexts[n][att_goal_pos] {
+			panic("attack failed\n")
+		}
+		att_plainbytes = append(att_plainbytes, att_plain_byte)
+	}
+	slices.Reverse(att_plainbytes)
+	fmt.Printf("actual: %s\nattacker: %s\n", plaintexts[n], att_plainbytes[0:len(att_plainbytes) - att_padding_len])
+</pre>
+</details>
+
+This worked to decrypt the _last_ block, but then I was stuck trying to decrypt all blocks before it - since there is no way to set a padding > 16 without overwriting the bytes in the block I'm targeting.
+
+New approach that doesn't rely on the presence of any padding at all:
+
+Credits to <https://grymoire.wordpress.com/2014/12/05/cbc-padding-oracle-attacks-simplified-key-concepts-and-pitfalls/> for making it "click":
+
+- Attempt to make the oracle pass with padding byte of 1. That requires causing the target byte (last byte of target block of ciphertext), when XOR'ed with corresponding byte from previous cipherblock, to equal 1. Modify the corresponding cipherbyte from previous block (substitute each possible byte) until this condition is met. This provides the following:
+
+```
+T=target byte
+C=corresponding byte in previous block of ciphertext
+C'=modified corresponding byte in previous block of ciphertext
+
+ECB_D(T) xor C' = 1
+ECB_D(T) = 1 xor C'
+T = ECB_D(T) xor C (from definition of CBC Decrypt)
+T =(1 xor C') xor C (from definition of CBC Decrypt)
+```
+
+- Repeat the above, but with a goal of making oracle pass with padding byte of 2. When modifying the bytes of preceding cipherblock that correspond to _known_ plaintext bytes, use the known information to guarantee the bytes will equal the desired padding. Repeat for that block, and start over for the preceding block
+
+This approach is similar to my original idea (incrementing the attacker "target" padding byte with each byte from the end to decrypt) but just relies on finding the first plaintext byte and using that to find the rest
+
+There is an extra caveat to this approach detailed in the code (for special case of goal padding = 1)
