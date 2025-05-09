@@ -383,3 +383,13 @@ func TestAESEncrypt_CBC(tt *t.T) {
 		tt.Fatalf("expected %v for AES CBC encryption of %s, got %v\n", expected, string(plainbytes), out)
 	}
 }
+
+func TestInt_To_Bytes(tt *t.T) {
+	int_to_bytes(0x01000007000000ff)
+}
+
+func TestProcess_CTR(tt *t.T) {
+	a := AES{debug: false}
+	out := a.process_ctr(base64decode("L77na/nrFsKvynd6HzOoG7GHTLXsTVu9qvY/2syLXzhPweyyMTJULu/6/kXX0KSvoOLSFQ=="), []byte("YELLOW SUBMARINE"), int_to_bytes(0), 0)
+	fmt.Printf("%v\n%s\n", out, out)
+}

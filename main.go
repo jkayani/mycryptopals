@@ -1304,6 +1304,11 @@ func cbc_bitflip() bool {
 }
 
 func nth_block(bytes []byte, n int) []byte {
+	// For CTR mode, input isn't padded to multiple of blocklen
+	// If insufficient data left for a whole block, return what's there
+	if blocksize_bytes * (n + 1) > len(bytes) {
+		return bytes[blocksize_bytes * n:]
+	}
 	return bytes[blocksize_bytes * n : blocksize_bytes * (n + 1)]
 }
 

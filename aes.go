@@ -504,3 +504,45 @@ func (a *AES) Encrypt_CBC(cipherbytes, key, iv []byte) []byte {
 
 	return result
 }
+
+// Break out an 8-byte (uint64) int into it's individual 8 bytes
+func int_to_bytes(input uint64) []byte {
+	result := []byte{}
+	shift_len := 16 - 2
+	for i := 0; i < 8; i += 1 {
+		r := (input & (0xff << (shift_len * 4))) >> (shift_len * 4)
+		// fmt.Printf("iteration: %d, input: %d, shift_len: %d, result: %d\n", i, input, shift_len, r)
+
+		result = append(result, byte(r))
+		shift_len -= 2
+	}
+	// fmt.Printf("result: %v\n", result)
+	return result
+}
+
+func (a *AES) process_ctr(inbytes, key, nonce []byte, counter_init uint64) []byte {
+	var counter uint64 = 0
+	result := []byte{}
+
+	for i := 0; i < blocklen(inbytes); i += 1 {
+		counter_bytes := int_to_bytes(counter)
+
+		// The counter has to be in little-endian
+		slices.Reverse(counter_bytes)
+
+		payload := append(slices.Clone(nonce), counter_bytes...)
+		cipherbytes := a.Encrypt_ECB(payload, key)
+		a.debugf("block %d: using counter value %d (%v), payload: %v\nCTR ciphertext: %v\n", i, counter, counter_bytes, payload, cipherbytes)
+
+		curr_block := nth_block(inbytes, i)
+
+		// Only use as much ciphertext as there is input data left to work with
+		r := fixedxor(curr_block, cipherbytes[0: len(curr_block)])
+		result = append(result, r...)
+		a.debugf("\nblock %d\nbefor: %v\nafter: %v\n\n", i, curr_block, r)
+
+		counter += 1
+	}
+
+	return result
+}
