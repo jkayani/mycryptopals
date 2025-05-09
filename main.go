@@ -1314,8 +1314,8 @@ func nth_block(bytes []byte, n int) []byte {
 
 func cbc_padding_oracle(plaintext string) (string, error) {
 	key, iv := randomAESkey(), randomAESkey()
-	a := AES{debug: false}
 	first := func() (cipherbytes, used_iv []byte) {
+		a := AES{debug: false}
 		pad_len := blocklen([]byte(plaintext)) * blocksize_bytes
 		padded := pkcs7pad_bytes([]byte(plaintext),  pad_len)
 
@@ -1327,7 +1327,7 @@ func cbc_padding_oracle(plaintext string) (string, error) {
 
 		return a.Encrypt_CBC(padded, key, iv), iv
 	}
-	second := func(cipherbytes []byte) bool {
+	second := func(a *AES, cipherbytes []byte) bool {
 		_, e := validatepkcs7padding(a.Decrypt_CBC(cipherbytes, key, iv))
 		return e == nil
 	}
@@ -1337,76 +1337,92 @@ func cbc_padding_oracle(plaintext string) (string, error) {
 	att_cipherbytes, att_iv := first()
 	att_blocklen := blocklen(att_cipherbytes)
 	att_full_plainbytes := []byte{}
+
+	type att_block_result struct {
+		blockidx int
+		plainbytes []byte
+	}
+	att_decrypted_block_chan := make(chan att_block_result)
+	att_all_blocks := map[int][]byte{}
 	for att_target_block := att_blocklen - 1; att_target_block >= 0; att_target_block -= 1 {
-
-		var original_firstblock []byte
-		if att_target_block == 0 {
-			original_firstblock = att_iv
-		} else {
-			original_firstblock = nth_block(att_cipherbytes, att_target_block - 1)
-		}
-		secondblock := nth_block(att_cipherbytes, att_target_block)
-		// fmt.Printf("target block: %d, cipherblocks: %v\n%v\n", att_target_block, original_firstblock, secondblock)
-
-		att_plainbytes := []byte{}
-		for i := blocksize_bytes - 1; i >= 0; i -= 1 {
-			att_goal_padding := blocksize_bytes - i
-			// fmt.Printf("att goal is to make oracle pass with padding: %d\n", att_goal_padding)
-			firstblock := slices.Clone(original_firstblock)
-			// fmt.Printf("firstblock before modify: %v\n", firstblock)
-
-			// Use CBC bitflip to ensure the known plainbytes decrypt to the goal_padding (P')
-			for k, j := len(att_plainbytes) - 1, i + 1; j < blocksize_bytes; k, j = k - 1, j + 1{
-				firstblock[j] = xorbytes(byte(att_goal_padding), xorbytes(att_plainbytes[k], original_firstblock[j]))
+		go func(att_target_block int) {
+			a := AES{}
+			var original_firstblock []byte
+			if att_target_block == 0 {
+				original_firstblock = att_iv
+			} else {
+				original_firstblock = nth_block(att_cipherbytes, att_target_block - 1)
 			}
-			// fmt.Printf("firstblock after modify: %v\n", firstblock)
+			secondblock := nth_block(att_cipherbytes, att_target_block)
+			// fmt.Printf("target block: %d, cipherblocks: %v\n%v\n", att_target_block, original_firstblock, secondblock)
 
-			// Set C' by substituting each possible byte value
-			// Do this until the oracle passes (ECB_Decrypt(T) xor C' = P')
-			options := []byte{}
-			for k := 0; k < 256; k += 1 {
-				firstblock[i] = byte(k)
-				if second(append(firstblock, secondblock...)) {
-					options = append(options, firstblock[i])
+			att_plainbytes := []byte{}
+			for i := blocksize_bytes - 1; i >= 0; i -= 1 {
+				att_goal_padding := blocksize_bytes - i
+				// fmt.Printf("att goal is to make oracle pass with padding: %d\n", att_goal_padding)
+				firstblock := slices.Clone(original_firstblock)
+				// fmt.Printf("firstblock before modify: %v\n", firstblock)
+
+				// Use CBC bitflip to ensure the known plainbytes decrypt to the goal_padding (P')
+				for k, j := len(att_plainbytes) - 1, i + 1; j < blocksize_bytes; k, j = k - 1, j + 1{
+					firstblock[j] = xorbytes(byte(att_goal_padding), xorbytes(att_plainbytes[k], original_firstblock[j]))
 				}
-			}
+				// fmt.Printf("firstblock after modify: %v\n", firstblock)
 
-			// Attack is to find a C' for attacker goal padding P' such that oracle passes => ECB_Decrypt(T) xor C' = P'
-			// The oracle will pass if T (our target byte) decrypts to P' (starts at 0x01) OR T decrypts to the "actual" padding (P)
-			// On every iteration after P'=1, the other padding bytes are guaranteed to equal P'
-			// Therefore on those iterations, oracle will ONLY pass in the situation we desire (T decrypts to P')
-			// BUT on iteration 1, since we cannot set any bytes after the last byte to affect things,
-			// the oracle can pass in either case:
-
-			// T decrypts to P' (desired, since we know the value of P')
-			// T decrypts to P (not desired since we don't actually know P), which is guaranteed to happen when C'=C
-
-			// Thus if multiple mutations pass the oracle, choose the one where C' != C
-			// Note that for length-15 plaintexts where P=1, oracle will only pass for P'=1 when C'=C
-			// In that case, only one mutation will pass the oracle so everything will work BAU
-			if len(options) > 0 {
-				opt := options[0]
-				if len(options) > 1 {
-					for _, o := range options {
-						if o != original_firstblock[i] {
-							opt = o
-							break
-						}
+				// Set C' by substituting each possible byte value
+				// Do this until the oracle passes (ECB_Decrypt(T) xor C' = P')
+				options := []byte{}
+				for k := 0; k < 256; k += 1 {
+					firstblock[i] = byte(k)
+					if second(&a, append(firstblock, secondblock...)) {
+						options = append(options, firstblock[i])
 					}
 				}
-				// fmt.Printf("using byte value %d (compared to %d) causes oracle to pass\n", opt, original_firstblock[i])
-				att_result := xorbytes(xorbytes(byte(att_goal_padding), opt), original_firstblock[i])
-				// fmt.Printf("plaintext at pos %d: %d (%c)\n", i, att_result, att_result)
-				att_plainbytes = append(att_plainbytes, att_result)
-			} else {
-				panic("attack failed since no byte could be used to pass the oracle\n")
-			}
-		}
 
-		// Each block is decrypted backwards
-		// The blocks are also decrypted in backwards order
-		slices.Reverse(att_plainbytes)
-		att_full_plainbytes = append(att_plainbytes, att_full_plainbytes...)
+				// Attack is to find a C' for attacker goal padding P' such that oracle passes => ECB_Decrypt(T) xor C' = P'
+				// The oracle will pass if T (our target byte) decrypts to P' (starts at 0x01) OR T decrypts to the "actual" padding (P)
+				// On every iteration after P'=1, the other padding bytes are guaranteed to equal P'
+				// Therefore on those iterations, oracle will ONLY pass in the situation we desire (T decrypts to P')
+				// BUT on iteration 1, since we cannot set any bytes after the last byte to affect things,
+				// the oracle can pass in either case:
+
+				// T decrypts to P' (desired, since we know the value of P')
+				// T decrypts to P (not desired since we don't actually know P), which is guaranteed to happen when C'=C
+
+				// Thus if multiple mutations pass the oracle, choose the one where C' != C
+				// Note that for length-15 plaintexts where P=1, oracle will only pass for P'=1 when C'=C
+				// In that case, only one mutation will pass the oracle so everything will work BAU
+				if len(options) > 0 {
+					opt := options[0]
+					if len(options) > 1 {
+						for _, o := range options {
+							if o != original_firstblock[i] {
+								opt = o
+								break
+							}
+						}
+					}
+					// fmt.Printf("using byte value %d (compared to %d) causes oracle to pass\n", opt, original_firstblock[i])
+					att_result := xorbytes(xorbytes(byte(att_goal_padding), opt), original_firstblock[i])
+					// fmt.Printf("target_block: %d plaintext at pos %d: %d (%c)\n", att_target_block, i, att_result, att_result)
+					att_plainbytes = append(att_plainbytes, att_result)
+				} else {
+					panic("attack failed since no byte could be used to pass the oracle\n")
+				}
+			}
+
+			// Each block is decrypted backwards
+			slices.Reverse(att_plainbytes)
+			att_decrypted_block_chan <- att_block_result{att_target_block, att_plainbytes}
+		}(att_target_block)
+	}
+
+	for i := att_blocklen - 1; i >= 0; i -= 1 {
+		r := <- att_decrypted_block_chan
+		att_all_blocks[r.blockidx] = r.plainbytes
+	}
+	for i := 0; i < len(att_all_blocks); i += 1 {
+		att_full_plainbytes = append(att_full_plainbytes, att_all_blocks[i]...)
 	}
 
 	att_string, err := validatepkcs7padding(att_full_plainbytes)
