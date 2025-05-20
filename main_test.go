@@ -333,3 +333,26 @@ func Test_CBC_Padding_Oracle(tt *t.T) {
 		}
 	}
 }
+
+func Test_CTR_Fixed_Nonce(tt *t.T) {
+	test := func(v bool) {
+		actual, expected := ctr_fixed_nonce(v)
+		if len(actual) != len(expected) {
+			tt.Fatalf("expected len: %d, got len: %d\n", len(expected), len(actual))
+		}
+		idx := -1
+		for k, _ := range expected {
+			if expected[k] == actual[k] {
+				idx += 1
+			}
+		}
+		tt.Logf("idx right: %d / %d\npercent accuracy of guessing CTR fixed nonce keystream: %v\nexpected: %v\nactual: %v\n", idx, len(actual), 100 * (float64(idx + 1) / float64(len(actual))), expected, actual)
+		if v {
+			if idx + 1 != len(expected) {
+				tt.Fatalf("CTR mode keystream was not correctly deduced: expected: %v\ngot: %v\n", expected, actual)
+			}
+		}
+	}
+	test(true)
+	test(false)
+}

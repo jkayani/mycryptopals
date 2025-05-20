@@ -9,6 +9,8 @@ import (
 	"os"
 	"bufio"
 	"strings"
+	// "maps"
+	"regexp"
 )
 
 func main() {
@@ -1428,4 +1430,197 @@ func cbc_padding_oracle(plaintext string) (string, error) {
 	att_string, err := validatepkcs7padding(att_full_plainbytes)
 	fmt.Printf("att plaintext: %v\n%s\n%s\n", att_full_plainbytes, att_string, base64decode(string(att_string)))
 	return string(att_string), err
+}
+
+func ctr_fixed_nonce(shortest bool) ([]byte, []byte) {
+	// plaintexts := []string {
+	// 	"SSBoYXZlIG1ldCB0aGVtIGF0IGNsb3NlIG9mIGRheQ==",
+	// 	"Q29taW5nIHdpdGggdml2aWQgZmFjZXM=",
+	// 	"RnJvbSBjb3VudGVyIG9yIGRlc2sgYW1vbmcgZ3JleQ==",
+	// 	"RWlnaHRlZW50aC1jZW50dXJ5IGhvdXNlcy4=",
+	// 	"SSBoYXZlIHBhc3NlZCB3aXRoIGEgbm9kIG9mIHRoZSBoZWFk",
+	// 	"T3IgcG9saXRlIG1lYW5pbmdsZXNzIHdvcmRzLA==",
+	// 	"T3IgaGF2ZSBsaW5nZXJlZCBhd2hpbGUgYW5kIHNhaWQ=",
+	// 	"UG9saXRlIG1lYW5pbmdsZXNzIHdvcmRzLA==",
+	// 	"QW5kIHRob3VnaHQgYmVmb3JlIEkgaGFkIGRvbmU=",
+	// 	"T2YgYSBtb2NraW5nIHRhbGUgb3IgYSBnaWJl",
+	// 	"VG8gcGxlYXNlIGEgY29tcGFuaW9u",
+	// 	"QXJvdW5kIHRoZSBmaXJlIGF0IHRoZSBjbHViLA==",
+	// 	"QmVpbmcgY2VydGFpbiB0aGF0IHRoZXkgYW5kIEk=",
+	// 	"QnV0IGxpdmVkIHdoZXJlIG1vdGxleSBpcyB3b3JuOg==",
+	// 	"QWxsIGNoYW5nZWQsIGNoYW5nZWQgdXR0ZXJseTo=",
+	// 	"QSB0ZXJyaWJsZSBiZWF1dHkgaXMgYm9ybi4=",
+	// 	"VGhhdCB3b21hbidzIGRheXMgd2VyZSBzcGVudA==",
+	// 	"SW4gaWdub3JhbnQgZ29vZCB3aWxsLA==",
+	// 	"SGVyIG5pZ2h0cyBpbiBhcmd1bWVudA==",
+	// 	"VW50aWwgaGVyIHZvaWNlIGdyZXcgc2hyaWxsLg==",
+	// 	"V2hhdCB2b2ljZSBtb3JlIHN3ZWV0IHRoYW4gaGVycw==",
+	// 	"V2hlbiB5b3VuZyBhbmQgYmVhdXRpZnVsLA==",
+	// 	"U2hlIHJvZGUgdG8gaGFycmllcnM/",
+	// 	"VGhpcyBtYW4gaGFkIGtlcHQgYSBzY2hvb2w=",
+	// 	"QW5kIHJvZGUgb3VyIHdpbmdlZCBob3JzZS4=",
+	// 	"VGhpcyBvdGhlciBoaXMgaGVscGVyIGFuZCBmcmllbmQ=",
+	// 	"V2FzIGNvbWluZyBpbnRvIGhpcyBmb3JjZTs=",
+	// 	"SGUgbWlnaHQgaGF2ZSB3b24gZmFtZSBpbiB0aGUgZW5kLA==",
+	// 	"U28gc2Vuc2l0aXZlIGhpcyBuYXR1cmUgc2VlbWVkLA==",
+	// 	"U28gZGFyaW5nIGFuZCBzd2VldCBoaXMgdGhvdWdodC4=",
+	// 	"VGhpcyBvdGhlciBtYW4gSSBoYWQgZHJlYW1lZA==",
+	// 	"QSBkcnVua2VuLCB2YWluLWdsb3Jpb3VzIGxvdXQu",
+	// 	"SGUgaGFkIGRvbmUgbW9zdCBiaXR0ZXIgd3Jvbmc=",
+	// 	"VG8gc29tZSB3aG8gYXJlIG5lYXIgbXkgaGVhcnQs",
+	// 	"WWV0IEkgbnVtYmVyIGhpbSBpbiB0aGUgc29uZzs=",
+	// 	"SGUsIHRvbywgaGFzIHJlc2lnbmVkIGhpcyBwYXJ0",
+	// 	"SW4gdGhlIGNhc3VhbCBjb21lZHk7",
+	// 	"SGUsIHRvbywgaGFzIGJlZW4gY2hhbmdlZCBpbiBoaXMgdHVybiw=",
+	// 	"VHJhbnNmb3JtZWQgdXR0ZXJseTo=",
+	// 	"QSB0ZXJyaWJsZSBiZWF1dHkgaXMgYm9ybi4=",
+	// }
+	sc := read("3_20.txt")
+	plaintexts := []string{}
+	for sc.Scan() {
+		plaintexts = append(plaintexts, sc.Text())
+	}
+
+	key := randomAESkey()
+	a := AES{}
+	ctr_encrypt := func(input string) (cipherbytes []byte, keystream []byte) {
+		return a.process_ctr(base64decode(input), key, int_to_bytes(uint64(0)), 0)
+	}
+
+	ciphertexts := make([][]byte, len(plaintexts))
+	keystreams := make([][]byte, len(plaintexts))
+	var longest_len, longest_idx int
+	var shortest_len int = len(plaintexts[0])
+	for k, v := range plaintexts {
+		ciphertexts[k], keystreams[k] = ctr_encrypt(v)
+		if len(ciphertexts[k]) > longest_len {
+			longest_len = len(ciphertexts[k])
+			longest_idx = k
+		}
+		if len(ciphertexts[k]) < shortest_len {
+			shortest_len = len(ciphertexts[k])
+		}
+	}
+
+	// Idea here is that the resulting plaintext needs to be valid English
+	// letters, punctuation, spaces
+	accept_regexp := regexp.MustCompile(`[a-zA-Z0-9]|[:;"/',!?.-]|\s`)
+
+	// These rules have to be tuned for each plaintext
+	reject_regexps := []*regexp.Regexp{
+
+		// No sequence of punctuation chars
+		regexp.MustCompile(`[:;"'/]{2}`),
+
+		// No more than 1 space
+		// regexp.MustCompile(`[\s]{2,}`),
+
+		// H shouldn't be followed by a char that isn't these (vowels, punctuation, some consonants)
+		regexp.MustCompile(`(H|h|x)[^aeiouwmbytr\s:;',!?.-]`),
+		
+		// These chars shouldn't be followed by certain chars (mostly consonant combinations)
+		// regexp.MustCompile(`((n)[h])|t[gfdzv]|d[v]|b[j]|x[r]|r[f]|z[zg]|q[w]|i[uq]`),
+
+		// Capital letters should be preceded by spaces since they mark a new sentence
+		// except for first letter of each plaintext, but that's handled in the loop
+		// regexp.MustCompile(`[^\s][A-Z]`),
+
+		// Apostrophe must be followed by a lowercase char
+		// regexp.MustCompile(`['][^a-z]`),
+	}
+	att_keystream := []byte{}
+	att_plaintexts := make([][]byte, len(ciphertexts))
+
+	ranker := func (plaintext []byte) float64 {
+		letters := 0
+		re := regexp.MustCompile(`[a-z]|\s`)
+		for k, _ := range plaintext {
+			if re.Find(plaintext[k: k + 1]) != nil {
+				letters += 1
+			}
+		}
+		return float64(letters) / float64(len(plaintext))
+	}
+
+	type ranking struct {
+		plaintext []byte
+		rank float64
+	}
+
+	// This will not correctly decrypt all the ciphertexts but it will get most of each
+	// This works well in the beginning since all ciphertexts have a 0th char, 1th char, etc
+	// Each kth char in a ciphertext was XORed with the same keystream byte, so there are more chances
+	// to "check" a guess of a keystream byte and see if it passes/fails the above rules
+	// As the end of the ciphertexts near, there are fewer chances to check, and thus bad guesses cannot be weeded out
+	ending_pos := shortest_len
+	if ! shortest {
+		ending_pos = longest_len
+	}
+	for goal_pos := 0; goal_pos < ending_pos; goal_pos += 1 {
+		keystream_ranks := map[byte]ranking{}
+		for kval := 0; kval <= 255; kval += 1 {
+			keystream_byte := byte(kval)
+			plaintext_to_rank := []byte{}
+			discard := false
+			// fmt.Printf("testing keystream byte %v for pos %d\n", keystream_byte, goal_pos)
+			for k, ciphertext := range ciphertexts {
+				if goal_pos < len(ciphertext) {
+					next_plainbyte := xorbytes(keystream_byte, ciphertext[goal_pos])
+					s := []byte{next_plainbyte}
+					plaintext_to_rank = append(plaintext_to_rank, next_plainbyte)
+					if accept_regexp.Find(s) == nil	{
+						// fmt.Printf("DISCARD keystream byte %v for pos %d due to failing test: %s (%d)\n", keystream_byte, goal_pos, append(slices.Clone(att_plaintexts[k]), s...), next_plainbyte)
+						discard = true
+						break
+					}
+					if ! discard && goal_pos > 0 {
+						s = append(slices.Clone(att_plaintexts[k]), s...)
+						for _, re := range reject_regexps {
+							if o := re.Find(s); o != nil {
+								// fmt.Printf("DISCARD keystream byte %v for pos %d due to passing test %v: %s (%d)\n", keystream_byte, goal_pos, re, s, next_plainbyte)
+								discard = true
+								break
+							}
+						}
+					}
+				}
+				if discard {
+					// fmt.Printf("keystream byte %v does not work at all\n", keystream_byte)
+					break
+				}
+			}
+			if ! discard {
+				keystream_ranks[keystream_byte] = ranking{plaintext_to_rank, ranker(plaintext_to_rank)}
+			}
+		}
+		if len(keystream_ranks) == 0 {
+			for k, v := range att_plaintexts {
+				fmt.Printf("%d %s\n", k, v)
+			}
+			panic(fmt.Sprintf("no keystream byte found for pos %d\n", goal_pos))
+		} else {
+			var best_keystream_byte byte
+			for k, v := range keystream_ranks {
+				t := keystream_ranks[best_keystream_byte]
+				if len(t.plaintext) == 0 || v.rank > t.rank {
+					best_keystream_byte = k
+				}
+			}
+			// fmt.Printf("best keystream byte for pos %d is: %v => %s\n", goal_pos, best_keystream_byte, keystream_ranks[best_keystream_byte].plaintext)
+			// fmt.Printf("all potential keystream bytes for pos %d\n", goal_pos)
+			// for k, v := range keystream_ranks {
+			// 	fmt.Printf("%v => %s (%v)\n", k, v.plaintext, v.rank)
+			// }
+			for k, ciphertext := range ciphertexts {
+				if goal_pos < len(ciphertext) {
+					att_plaintexts[k] = append(att_plaintexts[k], xorbytes(best_keystream_byte, ciphertext[goal_pos]))
+				}
+			}
+			att_keystream = append(att_keystream, best_keystream_byte)
+		}
+	}
+	for k, v := range att_plaintexts {
+		fmt.Printf("%d %s\n", k, v)
+	}
+	return att_keystream[0:ending_pos], keystreams[longest_idx][0:ending_pos]
 }

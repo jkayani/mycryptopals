@@ -520,9 +520,10 @@ func int_to_bytes(input uint64) []byte {
 	return result
 }
 
-func (a *AES) process_ctr(inbytes, key, nonce []byte, counter_init uint64) []byte {
+func (a *AES) process_ctr(inbytes, key, nonce []byte, counter_init uint64) ([]byte, []byte) {
 	var counter uint64 = 0
 	result := []byte{}
+	keystream := []byte{}
 
 	for i := 0; i < blocklen(inbytes); i += 1 {
 		counter_bytes := int_to_bytes(counter)
@@ -539,10 +540,11 @@ func (a *AES) process_ctr(inbytes, key, nonce []byte, counter_init uint64) []byt
 		// Only use as much ciphertext as there is input data left to work with
 		r := fixedxor(curr_block, cipherbytes[0: len(curr_block)])
 		result = append(result, r...)
-		a.debugf("\nblock %d\nbefor: %v\nafter: %v\n\n", i, curr_block, r)
+		// a.debugf("\nblock %d\nbefor: %v\nafter: %v\n\n", i, curr_block, r)
 
 		counter += 1
+		keystream = append(keystream, cipherbytes...)
 	}
 
-	return result
+	return result, keystream
 }

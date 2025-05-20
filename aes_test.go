@@ -390,6 +390,6 @@ func TestInt_To_Bytes(tt *t.T) {
 
 func TestProcess_CTR(tt *t.T) {
 	a := AES{debug: false}
-	out := a.process_ctr(base64decode("L77na/nrFsKvynd6HzOoG7GHTLXsTVu9qvY/2syLXzhPweyyMTJULu/6/kXX0KSvoOLSFQ=="), []byte("YELLOW SUBMARINE"), int_to_bytes(0), 0)
+	out, _ := a.process_ctr(base64decode("L77na/nrFsKvynd6HzOoG7GHTLXsTVu9qvY/2syLXzhPweyyMTJULu/6/kXX0KSvoOLSFQ=="), []byte("YELLOW SUBMARINE"), int_to_bytes(0), 0)
 	fmt.Printf("%v\n%s\n", out, out)
 }

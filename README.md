@@ -214,3 +214,17 @@ T =(1 xor C') xor C (from definition of CBC Decrypt)
 This approach is similar to my original idea (incrementing the attacker "target" padding byte with each byte from the end to decrypt) but just relies on finding the first plaintext byte and using that to find the rest
 
 There is an extra caveat to this approach detailed in the code (for special case of goal padding = 1)
+
+### Stream ciphers
+
+#### CTR and the nonce
+
+CTR mode works like this:
+
+- Generate a keystream (stream of bytes with length exactly equal to the length of plaintext). Each segment of keystream is 16 bytes long: first 8 bytes are a fixed-value (nonce), second 8 bytes are a little-endian counter (0, 1, 2 ...). Encrypt these (with AES)
+
+- XOR the keystream against the plaintext to generate the ciphertext
+
+If the same AES key and same nonce are used to encrypt multiple plaintexts, the resulting ciphertexts can be used to deduce the keystream and decrypt the ciphertexts. The nth byte of each resulting ciphertext would be XORed with the same keystream byte. By guessing values of the keystream byte, "bad" guesses can be eliminated based on expected properties of the plaintext (non-ASCII chars, etc), and with enough ciphertext samples, enough bad guesses can be eliminated to yield the right answer. It's the same idea as repeating-key XOR
+
+This works less and less effectively the more the keystream is deduced, since there becomes fewer and fewer ciphertext samples to use (assuming the ciphertexts are of variable-length)
