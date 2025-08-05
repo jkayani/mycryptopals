@@ -4,6 +4,8 @@
 1_7.txt
 1_8.txt
 2_10.txt
+3_20.txt
+*.txt
 ciphertest
 plaintest
 file

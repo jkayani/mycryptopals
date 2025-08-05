@@ -9,8 +9,9 @@ import (
 	"os"
 	"bufio"
 	"strings"
-	// "maps"
 	"regexp"
+
+	"golang.org/x/exp/constraints"
 )
 
 func main() {
@@ -445,12 +446,12 @@ func fixedxor(hex1, hex2 []byte) (result []byte) {
 	return result
 }
 
-func xorbytes(byte1, byte2 byte) (byte) {
+func xorbytes[T constraints.Unsigned | byte](val1, val2 T) (T) {
 	// or the bits to determine where at least 1 is set
 	// and the bits to determine where both are set
 	// -> negate above to determine where either only 1 is set, or neither
 	// -> -> and above negation with the or to find where exactly 1 is set
-	return ((byte1 | byte2) & ^(byte1 & byte2))
+	return ((val1 | val2) & ^(val1 & val2))
 }
 
 func rankplaintext(bytes []byte) (score float64) {
