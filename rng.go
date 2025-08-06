@@ -18,26 +18,27 @@ const (
 	mt_c = 0xEFC60000
 	mt_l = 18
 	mt_f = 1812433253
+	bit_32 = 0xFFFFFFFF
 )
 
 type MTrng struct {
 	idx int
-	state []uint32
+	state []int
 }
 
 // https://en.wikipedia.org/wiki/Mersenne_Twister
 
-func (m *MTrng) mt_init(seed uint32) {
-	m.state = make([]uint32, mt_n)
+func (m *MTrng) mt_init(seed int) {
+	m.state = make([]int, mt_n)
 	m.state[0] = seed
 	for i := 1; i < mt_n; i += 1 {
-		m.state[i] = mt_f * xorbytes(m.state[i - 1], (m.state[i - 1] >> (mt_w - 2))) + uint32(i)
+		m.state[i] = (mt_f * xorbytes(m.state[i - 1], (m.state[i - 1] >> (mt_w - 2))) + i) & bit_32
 	}
 	fmt.Sprintf("state: %v\n", m.state)
 	m.idx = 0
 }
 
-func (m *MTrng) mt_gen() uint32 {
+func (m *MTrng) mt_gen() int {
 	// idx will only wrap around _after_ idx=623
 	// protect k + 1 access by wrapping around early as needed
 	xk, xk1 := m.state[m.idx], m.state[(m.idx + 1) % mt_n]

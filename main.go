@@ -11,7 +11,7 @@ import (
 	"strings"
 	"regexp"
 
-	"golang.org/x/exp/constraints"
+	// "golang.org/x/exp/constraints"
 )
 
 func main() {
@@ -446,7 +446,7 @@ func fixedxor(hex1, hex2 []byte) (result []byte) {
 	return result
 }
 
-func xorbytes[T constraints.Unsigned | byte](val1, val2 T) (T) {
+func xorbytes[T int | byte](val1, val2 T) (T) {
 	// or the bits to determine where at least 1 is set
 	// and the bits to determine where both are set
 	// -> negate above to determine where either only 1 is set, or neither
