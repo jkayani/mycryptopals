@@ -346,7 +346,7 @@ func Test_CTR_Fixed_Nonce(tt *t.T) {
 				idx += 1
 			}
 		}
-		tt.Logf("idx right: %d / %d\npercent accuracy of guessing CTR fixed nonce keystream: %v\nexpected: %v\nactual: %v\n", idx, len(actual), 100 * (float64(idx + 1) / float64(len(actual))), expected, actual)
+		tt.Logf("idx right: %d / %d\npercent accuracy of guessing CTR fixed nonce keystream: %v\nexpected: %v\nactual: %v\n", idx + 1, len(actual), 100 * (float64(idx + 1) / float64(len(actual))), expected, actual)
 		if v {
 			if idx + 1 != len(expected) {
 				tt.Fatalf("CTR mode keystream was not correctly deduced: expected: %v\ngot: %v\n", expected, actual)
@@ -355,6 +355,11 @@ func Test_CTR_Fixed_Nonce(tt *t.T) {
 	}
 	test(true)
 	test(false)
+}
+
+// TODO: figure this one out
+func XTest_Crack_MT_Seed(tt *t.T) {
+	mt_seed_crack()
 }
 
 func Test_Clone_MT(tt *t.T) {

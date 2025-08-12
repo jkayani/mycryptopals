@@ -42,16 +42,20 @@ func (m *MTrng) mt_gen() int {
 	// idx will only wrap around _after_ idx=623
 	// protect k + 1 access by wrapping around early as needed
 	xk, xk1 := m.state[m.idx], m.state[(m.idx + 1) % mt_n]
+	// fmt.Printf("using xk: %d, xk1: %d\n", xk, xk1)
 
 	upper_xk := (0x80000000 & xk)
 	lower_xk1 := (0x7FFFFFFF & xk1)
 
 	concat := upper_xk | lower_xk1
+	// fmt.Printf("using concat: %d\n", concat)
 	concat_a := concat >> 1
 	if concat % 2 == 1 {
 		concat_a = xorbytes(concat_a, mt_a)
 	}
+	// fmt.Printf("using concat a: %d\n", concat_a)
 	nxt := xorbytes(m.state[(mt_m + m.idx) % mt_n], concat_a)
+	// fmt.Printf("using m: %d (idx: %d)\n", m.state[(mt_m + m.idx) % mt_n], (mt_m + m.idx) % mt_n)
 
 	// k=227, m=397 => overflow
 	// after first val (when k=0) is generated, state[0] val is not needed
@@ -60,9 +64,13 @@ func (m *MTrng) mt_gen() int {
 	m.state[m.idx] = nxt
 
 	temper := xorbytes(nxt, (nxt >> mt_u) & mt_d)
+	// fmt.Printf("nxt: %d, temper 1: %d\n", nxt, temper)
 	temper = xorbytes(temper, (temper << mt_s) & mt_b)
+	// fmt.Printf("temper 2: %d\n", temper)
 	temper = xorbytes(temper, (temper << mt_t) & mt_c)
+	// fmt.Printf("temper 3: %d\n", temper)
 	temper = xorbytes(temper, (temper >> mt_l))
+	// fmt.Printf("rnd: %d\n", temper)
 
 	// idx must wrap around after idx=623
 	m.idx = (m.idx + 1) % mt_n

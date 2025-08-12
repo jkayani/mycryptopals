@@ -228,3 +228,36 @@ CTR mode works like this:
 If the same AES key and same nonce are used to encrypt multiple plaintexts, the resulting ciphertexts can be used to deduce the keystream and decrypt the ciphertexts. The nth byte of each resulting ciphertext would be XORed with the same keystream byte. By guessing values of the keystream byte, "bad" guesses can be eliminated based on expected properties of the plaintext (non-ASCII chars, etc), and with enough ciphertext samples, enough bad guesses can be eliminated to yield the right answer. It's the same idea as repeating-key XOR
 
 This works less and less effectively the more the keystream is deduced, since there becomes fewer and fewer ciphertext samples to use (assuming the ciphertexts are of variable-length)
+
+#### Mersenne Twister
+
+<https://en.wikipedia.org/wiki/Mersenne_Twister>
+
+
+After 624 RNG outputs, state array is completely full of those untempered RNG outputs, and they are used for all future generation. Tempered outputs can be reversed to give un-tempered outputs easily. So w/o knowing the seed, the RNG can be cloned and predicted
+
+Un-tempering can be done bit by bit given the tempering "result": 
+
+- Call the desired value A, and the variant of A shifted by a factor into a direction B
+- Identify the shift factor and direction
+- Note that all bits to the left/right of the shift factor (depending on shift direction) will be 0
+- Use the corresponding bit of the "result" and the known 0 bits of B to calculate the A bits from 0 to shift factor. Bit masking won't matter here since the B bits are guaranteed to be 0
+- Note that the A bit at position shift factor +/- 1 is the B bit at the shift factor due to definition of shift. Account for any bit masking here
+- Repeat above to find A bit at position shift factor, and continue for all bits of A
+
+
+My attempt to crack the seed was:
+
+- Seed the RNG with unknown seed
+- Generate 1 RNG output, the k=0 RNG output. This was generated using the seed, k=1 value from state array, and k=397 value from state array
+- Generate 397 more RNG outputs, keeping note of the RNG outputs for k=169 and k=396. These are important since the RNG output when k=396 is generated using k=396 value from state, k=397 from state, and k=((396 + 397) % 624 = 169) from state
+- k=169 from state array will be known after generating all those RNG outputs, as it will be the un-tempered k=169 RNG output
+- Since k=169 value from state array is known, possibilities for k=397 from state array can be generated. There are 8 possibilities due to the unknowns of:
+	- Reversing the "twist" (multiply by `A` matrix) since reversing this operation requires knowing what the last bit of it's input was to reverse the `xor` (either 0 or 1, so 2 options)
+	- Knowing what the last bit of un-doing above would give, for un-doing the `<< 1` (either 0 or 1, again 2 options)
+	- The 0th bit for k=397 value from state array, since above 4 options are all based on the last _31_ bits of the k=397, and there are 2 choices for the 0th bit
+	- 2 * 2 * 2 = 8. One of these will be k=397 from state array
+- For each of these 8 options, apply the same technique against k=0 RNG output to identify 8*8=64 possibilities for k=1 value from state array. One of these will be k=1 from state array
+- Reverse the state initialization for each candidate k=1 value, and use the result as a fresh seed into RNG, and return when that generator's first RNG output matches the original k=0 RNG output
+
+This idea worked up until the last step: reversing the state initialization is seemingly impossible, since the result of the operation in the "forward" direction truncates the result to fit 32 bit-length. So to reverse it, the truncation must be reversed by "expanding"the candidate k=1 value from state array, reversing that algebra, and then un-tempering the result to yield the seed. Since there is no way to know (?) how to expand the k=1 value from state array, this idea fails
