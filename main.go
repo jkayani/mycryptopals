@@ -1625,3 +1625,56 @@ func ctr_fixed_nonce(shortest bool) ([]byte, []byte) {
 	}
 	return att_keystream[0:ending_pos], keystreams[longest_idx][0:ending_pos]
 }
+
+func mt_clone() (MTrng, MTrng) {
+	reverse_temper := func(n, len, shift, mask int, dir bool) int {
+		nbits := bits(n, len)
+		a := bits(0, len)
+		maskbits := bits(mask, len)
+
+		if dir {
+			// B bits [0, shift) are 0 AND corresponding bit of the mask
+			// First bit of A is corresponding bit of B xor first bit of n
+			for i := 0; i < shift; i += 1 {
+				a[i] = xorbytes(0 & maskbits[i], nbits[i])
+			}
+			// b[i] = a[i - shift] which in turn yields a[i]
+			for i := shift; i < len; i += 1 {
+				a[i] = xorbytes(a[i - shift] & maskbits[i], nbits[i])
+			}
+		} else {
+			// B bits [len - 1, shift) are 0 AND mask
+			// Last bit of A is corresponding bit of B xor last bit of n 
+			for i := len - 1; i > len - 1 - shift; i -= 1 {
+				a[i] = xorbytes(0 & maskbits[i], nbits[i])
+			}
+			// b[i] = a[i - shift] which in turn yields a[i]
+			for i := len - 1 - shift; i >= 0; i = i - 1 {
+				a[i] = xorbytes(a[i + shift] & maskbits[i], nbits[i])
+			}
+		}
+		r := bitval(a)
+		return r
+	}
+	reverse_all_temper := func(n int) int {
+		n = reverse_temper(n, mt_w, mt_l, bit_32, true)
+		n = reverse_temper(n, mt_w, mt_t, mt_c, false)
+		n = reverse_temper(n, mt_w, mt_s, mt_b, false)
+		return reverse_temper(n, mt_w, mt_u, mt_d, true)
+	}
+
+	m := MTrng{}
+	m.mt_init(1)
+	att_state := make([]int, 624)
+	for i := 0; i < 624; i += 1 {
+		att_state[i] = reverse_all_temper(m.mt_gen())
+	}
+
+	// After 624 RNG outputs, state array is completely full of those untempered RNG outputs
+	// They are used for all future generation
+	// So w/o knowing seed, the RNG can be cloned and predicted
+	att_m := MTrng{}
+	att_m.state = att_state
+	att_m.idx = 0
+	return m, att_m
+}

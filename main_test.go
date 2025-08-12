@@ -356,3 +356,15 @@ func Test_CTR_Fixed_Nonce(tt *t.T) {
 	test(true)
 	test(false)
 }
+
+func Test_Clone_MT(tt *t.T) {
+	gen, att_gen := mt_clone()
+	limit := 10
+	for i := 0; i < limit; i += 1 {
+		expected := gen.mt_gen()
+		actual := att_gen.mt_gen()
+		if expected != actual {
+			tt.Fatalf("actual: %d, expected: %d\n", actual, expected)
+		}
+	}
+}
