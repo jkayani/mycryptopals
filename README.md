@@ -215,7 +215,7 @@ This approach is similar to my original idea (incrementing the attacker "target"
 
 There is an extra caveat to this approach detailed in the code (for special case of goal padding = 1)
 
-### Stream ciphers
+### Stream ciphers and RNG
 
 #### CTR and the nonce
 
@@ -246,7 +246,7 @@ Un-tempering can be done bit by bit given the tempering "result":
 - Repeat above to find A bit at position shift factor, and continue for all bits of A
 
 
-My attempt to crack the seed was:
+My attempt to "reverse" the seed was:
 
 - Seed the RNG with unknown seed
 - Generate 1 RNG output, the k=0 RNG output. This was generated using the seed, k=1 value from state array, and k=397 value from state array
@@ -261,3 +261,133 @@ My attempt to crack the seed was:
 - Reverse the state initialization for each candidate k=1 value, and use the result as a fresh seed into RNG, and return when that generator's first RNG output matches the original k=0 RNG output
 
 This idea worked up until the last step: reversing the state initialization is seemingly impossible, since the result of the operation in the "forward" direction truncates the result to fit 32 bit-length. So to reverse it, the truncation must be reversed by "expanding"the candidate k=1 value from state array, reversing that algebra, and then un-tempering the result to yield the seed. Since there is no way to know (?) how to expand the k=1 value from state array, this idea fails
+
+<details>
+<pre>
+func mt_seed_crack() {
+	seed := 5489
+	mt := MTrng{}
+	mt.mt_init(seed)
+
+	n := mt.mt_gen()
+	rng_out := n
+
+	reverse_temper := func(n, len, shift, mask int, dir bool) int {
+		nbits := bits(n, len)
+		a := bits(0, len)
+		maskbits := bits(mask, len)
+
+		if dir {
+			// B bits [0, shift) are 0 AND corresponding bit of the mask
+			// First bit of A is corresponding bit of B xor first bit of n
+			for i := 0; i < shift; i += 1 {
+				a[i] = xorbytes(0 & maskbits[i], nbits[i])
+			}
+			// b[i] = a[i - shift] which in turn yields a[i]
+			for i := shift; i < len; i += 1 {
+				a[i] = xorbytes(a[i - shift] & maskbits[i], nbits[i])
+			}
+		} else {
+			// B bits [len - 1, shift) are 0 AND mask
+			// Last bit of A is corresponding bit of B xor last bit of n 
+			for i := len - 1; i > len - 1 - shift; i -= 1 {
+				a[i] = xorbytes(0 & maskbits[i], nbits[i])
+			}
+			// b[i] = a[i - shift] which in turn yields a[i]
+			for i := len - 1 - shift; i >= 0; i = i - 1 {
+				a[i] = xorbytes(a[i + shift] & maskbits[i], nbits[i])
+			}
+		}
+		r := bitval(a)
+		// fmt.Printf("nbits: %v\na: %v (%v)\n", nbits, a, r)
+		return r
+	}
+	reverse_all_temper := func(n int) int {
+		n = reverse_temper(n, mt_w, mt_l, bit_32, true)
+		n = reverse_temper(n, mt_w, mt_t, mt_c, false)
+		n = reverse_temper(n, mt_w, mt_s, mt_b, false)
+		return reverse_temper(n, mt_w, mt_u, mt_d, true)
+	}
+
+	n = reverse_all_temper(n)
+	fmt.Printf("reversed temper of RNG 1 and RNG 2: %d\n", n)
+
+	// New idea:
+	// Find x_397 from original state array to narrow down x_1 to 8 choices and reverse each to find seed
+	// To find x_397, analyze k=396
+	// x_396 = x_((397 + 396) % 624 = 169 = reverse_temper(RNG_169)) xor (something with x_397 lower 31 bits in it)
+	// x_396 = reverse_temper(RNG_396)
+	// => narrow down x_397 to 8 different choices
+	// => narrow down x_1 to 64 (8 choices for x_397 * 8 choices for x_1) different choices
+	// => choose the one that after reversing state init, works?
+
+	var n396, n169 int
+	for i := 1; i < 397; i += 1 {
+		if i == 396 {
+			n396 = mt.mt_gen()
+		} else if i == 169 {
+			n169 = mt.mt_gen()
+		} else {
+			mt.mt_gen()
+		}
+	}
+	n169, n396 = reverse_all_temper(n169), reverse_all_temper(n396)
+	// correct 169=1541376461, 396=1161613179
+	fmt.Printf("reversed temper of n169: %d, n396: %d\n", n169, n396)
+
+	rhs_396 := xorbytes(n396, n169)
+	fmt.Printf("RHS of RNG_396: %d\n", rhs_396)
+
+	find_k_one := func(rhs int) []int {
+		rhs_without_a_even := []int{(rhs << 1) & bit_32, ((rhs << 1) & bit_32) | 1}
+		rhs_without_a_odd := []int{(xorbytes(rhs, mt_a) << 1) & bit_32, ((xorbytes(rhs, mt_a) << 1) & bit_32) | 1}
+
+		var possible_k_one []int
+		for _, v := range slices.Concat(rhs_without_a_even, rhs_without_a_odd) {
+			fmt.Printf("analyzing RHS after reversing multiply by A: %d\n", v)
+			t := v & 0x7FFFFFFF
+			t2 := (1 << (mt_w - 1)) | t
+			possible_k_one = append(possible_k_one, t, t2)
+		}
+		fmt.Printf("calculated possible k + 1 values: %v\n", possible_k_one)
+		return possible_k_one
+	}
+
+	var state1 []int
+	for _, v := range find_k_one(rhs_396) {
+		fmt.Printf("computing k + 1 values given x_397 = %d\n", v)
+		rhs_1 := xorbytes(n, v)
+		state1 = append(state1, find_k_one(rhs_1)...)
+	}
+	fmt.Printf("calculated possible k + 1 values for k=0: %v (%d)\n", state1, len(state1))
+
+	// Use each option for state1 to calculate possible options for state0 == seed
+	// NOTE: mt_f itself requires 31 bits to represent - multiplying by that and adding 1 can extend beyond 32 bits
+	// Unf, those extra bits are lost with truncation
+	// So how do we go from state1 => seed?
+	var att_seed int
+	var seed_found bool
+	for _, v := range state1 {
+	// reverse_temper := func(n, len, shift, mask int, dir bool) int {
+		possible_seed := reverse_temper((v - 1) >> 18, mt_w, mt_w - 2, bit_32, true)
+		if v == 1301868182 {
+			fmt.Printf("calculated possible seed: %v from state_1 = %d, %d\n", possible_seed, v, (v - 1) / mt_f)
+		}
+		m := MTrng{}
+		m.mt_init(possible_seed);
+		if m.mt_gen() == rng_out {
+			att_seed = possible_seed
+			seed_found = true
+			break
+		}
+	}
+	if !seed_found {
+		panic(fmt.Sprintf("seed not found for RNG output: %d with actual seed: %d\n", rng_out, 5489))
+	} else {
+		fmt.Printf("found MT19937 seed %d (actual: %d) from RNG output %d\n", att_seed, seed, rng_out)
+	}
+}
+</pre>
+</details>
+
+It turns out, the point of the exercise in cracking the seed was to demonstrate how easily guessed the RNG seed is, since it's easy to check guesses and it's easy to make guesses if the seed is based on something like a timestamp. I definitely over-thought this one.

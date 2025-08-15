@@ -357,9 +357,11 @@ func Test_CTR_Fixed_Nonce(tt *t.T) {
 	test(false)
 }
 
-// TODO: figure this one out
-func XTest_Crack_MT_Seed(tt *t.T) {
-	mt_seed_crack()
+func Test_Crack_MT_Seed(tt *t.T) {
+	e, a := mt_seed_crack()
+	if e != a {
+		tt.Fatalf("Crack MT19937 seed failed: actual: %d, expected: %d\n", a, e)
+	}
 }
 
 func Test_Clone_MT(tt *t.T) {
