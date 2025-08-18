@@ -375,3 +375,10 @@ func Test_Clone_MT(tt *t.T) {
 		}
 	}
 }
+
+func Test_Break_MT_Stream(tt *t.T) {
+	e, a := mt_stream_break()
+	if e != a {
+		tt.Fatalf("Crack MT19937 seed from stream cipher failed: actual: %d, expected: %d\n", a, e)
+	}
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"math"
@@ -1713,4 +1714,122 @@ func mt_clone() (MTrng, MTrng) {
 	att_m.state = att_state
 	att_m.idx = 0
 	return m, att_m
+}
+
+func mt_stream_break() (int, int) {
+	known := "joshjoshjoshka"
+
+	encrypt := func() ([]byte, int) {
+		plain := []byte(known)
+		for i := 0; i < rand.Intn(10); i += 1 {
+			rndCh := byte(rand.Intn(122 - 97) + 97)
+			plain = append([]byte{rndCh}, plain...)
+		}
+
+		seed := rand.Intn(0xFFFF)
+		m := MTrng{}
+		fmt.Printf("using seed: %d and plaintext: %s\n", seed, plain)
+		return m.process_mt_crypt(seed, plain), seed
+	}
+
+	cipherbytes, true_seed := encrypt()
+	// fmt.Printf("known plain: %v (%s); encrypt: %v (%d)\n", known, known, cipherbytes, len(cipherbytes))
+	att_rngs := []int{}
+	bytes_recovered := 0
+	att_rng := 0
+
+	// Each RNG output is broken into 4 bytes for use in keystream
+	// Ciphertext length isn't always multiple of 4
+	// "Parts" of an RNG output may be used as keystream for last few cipherbytes
+	// Skip the ending cipherbytes that can only recover partial RNG output
+	start := 0
+	for i := len(cipherbytes); i >= 0; i -= 1 {
+		if i % 4 == 0 {
+			start = i
+			break
+		}
+	}
+	
+	// Since some ending cipherbytes may be skippped, corresponding ending cipherbytes in the known
+	// plain bytes also have to be skipped so that keystream is correctly recovered
+	for i, k := start - 1, len(known) - 1 - (len(cipherbytes) - start); k >= 0; i, k = i - 1, k - 1 {
+		if bytes_recovered == 4 {
+			att_rngs = append(att_rngs, att_rng)
+			att_rng = 0
+			bytes_recovered = 0
+		}
+		recovered_keybyte := int(xorbytes(cipherbytes[i], known[k]))
+		// fmt.Printf("recovered keybyte: %d\n", recovered_keybyte)
+		att_rng |=  recovered_keybyte << (8 * bytes_recovered)
+		bytes_recovered += 1
+	}
+	if bytes_recovered == 4 {
+		att_rngs = append(att_rngs, att_rng)
+	}
+
+	// Determine the ordinal of the last RNG recovered
+	// Last RNG recovered is the earliest one used for encrypting
+	// This determines how many "test" RNG outputs should be generated for each guess of the seed to compare against recovered RNG output
+	earliest_rng_idx := (len(cipherbytes) - len(known))
+	if earliest_rng_idx % 4 != 0 {
+		earliest_rng_idx /= 4
+		earliest_rng_idx += 1
+	} else {
+		earliest_rng_idx /= 4
+	}
+	fmt.Printf("recovered RNG outputs: %v, earliest idx: %d\n", att_rngs, earliest_rng_idx)
+
+	// Guess seed values, and generate enough RNG outputs for each guess
+	// to determine if seed can eventually generate the earliest recovered RNG output
+	var att_seed int
+	max_seed := 0xFFFF
+
+	rCh := make(chan int)
+	doneCh := make(chan int)
+	c, cancel := context.WithCancel(context.TODO())
+	go func(ptr *int) {
+		for i := range rCh {
+				*ptr = i
+				cancel()
+				doneCh <- 0
+				break
+		}
+	}(&att_seed)
+
+	for i := 0; i < max_seed; i += 1 {
+		go func(i int) {
+			select {
+			case <- c.Done():
+				return
+			default:
+			}
+			m := MTrng{}
+			m.mt_init(i)
+			var r int
+			for j := 0; j <= earliest_rng_idx; j += 1 {
+				r = m.mt_gen()
+			}
+			if r == att_rngs[len(att_rngs) - 1] {
+				rCh <- i
+			}
+			return
+		}(i)
+	}
+	<- doneCh
+
+	// for i := 0; i < max_seed; i += 1 {
+	// 	m := MTrng{}
+	// 	m.mt_init(i)
+	// 	var r int
+	// 	for j := 0; j <= earliest_rng_idx; j += 1 {
+	// 		r = m.mt_gen()
+	// 	}
+	// 	if r == att_rngs[len(att_rngs) - 1] {
+	// 		att_seed = i
+	// 		break
+	// 	}
+	// }
+
+	fmt.Printf("attacker recovered seed: %d\n", att_seed)
+	return true_seed, att_seed
 }

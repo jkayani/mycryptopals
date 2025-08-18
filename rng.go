@@ -77,3 +77,28 @@ func (m *MTrng) mt_gen() int {
 	return temper
 }
 
+func (m *MTrng) process_mt_crypt(seed int, inbytes []byte) []byte {
+	m.mt_init(seed)
+
+	basemask := 0xFF000000
+	masks := []int{basemask, basemask >> 8, basemask >> 16, basemask >> 24}
+	keystream := make([]byte, len(inbytes))
+	maskidx := 0
+	var rng int
+	for i := 0; i < len(inbytes); i += 1 {
+		if maskidx == 0 {
+			rng = m.mt_gen()
+			// fmt.Printf("using rng %d for idx %d\n", rng, i)
+		}
+		keystream[i] = byte((rng & masks[maskidx]) >> ((len(masks) - 1 - maskidx) * 8))
+		maskidx = (maskidx + 1) % len(masks)
+	}
+
+	outbytes := make([]byte, len(inbytes))
+	for k, v := range inbytes {
+		outbytes[k] = xorbytes(keystream[k], v)
+	}
+
+	// fmt.Printf("using keystream: %v\n", keystream)
+	return outbytes
+}
