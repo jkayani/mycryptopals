@@ -53,8 +53,12 @@ func bitval(bits []int) int {
 	var sum int
 
 	// Compute decimal value of given bits
-	for bit := 0; bit < len(bits); bit += 1 {
-		sum += int(math.Pow(float64(2), float64(len(bits) - bit - 1))) * bits[bit]
+	// for bit := 0; bit < len(bits); bit += 1 {
+	// 	sum += int(math.Pow(float64(2), float64(len(bits) - bit - 1))) * bits[bit]
+	// }
+
+	for k, v := range bits {
+		sum |= v << (len(bits) - k - 1)
 	}
 	return sum
 }
