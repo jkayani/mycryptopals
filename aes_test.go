@@ -390,9 +390,40 @@ func TestInt_To_Bytes(tt *t.T) {
 
 func TestProcess_CTR(tt *t.T) {
 	a := AES{debug: false}
-	out, keystream := a.process_ctr(base64decode("L77na/nrFsKvynd6HzOoG7GHTLXsTVu9qvY/2syLXzhPweyyMTJULu/6/kXX0KSvoOLSFQ=="), []byte("YELLOW SUBMARINE"), int_to_bytes(0), 0)
+	input := base64decode("L77na/nrFsKvynd6HzOoG7GHTLXsTVu9qvY/2syLXzhPweyyMTJULu/6/kXX0KSvoOLSFQ==")
+	out, keystream, err := a.process_ctr(input, []byte("YELLOW SUBMARINE"), int_to_bytes(0), 0)
 	if len(keystream) != len(out) {
 		tt.Fatalf("incorrect keystream returned for AES-CTR mode: expected: %d, got: %d\n", len(out), len(keystream))
 	}
+	if err != nil {
+		tt.Fatalf("err on AES-CTR: %s\n", err)
+	}
+	if o := fixedxor(input, keystream); !slices.Equal(out, o) {
+		tt.Fatalf("keystream does not decrypt ciphertext for AES-CTR mode: expected: %d, got: %d\n", out, o)
+	}
 	fmt.Printf("%v\n%s\n", out, out)
+}
+
+func Test_CTR_Seek_Edit(tt *t.T) {
+	og_plain := []byte("hey_its_josh")
+
+	a := AES{}
+	key, nonce := randomAESkey(), randomAESkey()[0:8]
+	og_cipher, _, err := a.process_ctr(og_plain, key, nonce, 0)
+	if err != nil {
+		tt.Fatalf("AES-CTR: err: %s\n", err)
+	}
+	new_cipher, err := a.ctr_seek_edit(slices.Clone(og_cipher), key, nonce, len("hey_its_"), []byte("john"))
+	if err != nil {
+		tt.Fatalf("CTR seek edit: AES-CTR: err: %s\n", err)
+	}
+
+	expected := []byte("hey_its_john")
+	actual, _, err := a.process_ctr(new_cipher, key, nonce, 0)
+	if err != nil {
+		tt.Fatalf("AES-CTR: err: %s\n", err)
+	}
+	if ! slices.Equal(expected, actual) {
+		tt.Fatalf("expected: %s for random-access edit into CTR cipherbytes, got: %s\n", expected, actual)
+	}
 }

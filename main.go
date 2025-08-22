@@ -1490,7 +1490,7 @@ func ctr_fixed_nonce(shortest bool) ([]byte, []byte) {
 
 	key := randomAESkey()
 	a := AES{}
-	ctr_encrypt := func(input string) (cipherbytes []byte, keystream []byte) {
+	ctr_encrypt := func(input string) (cipherbytes []byte, keystream []byte, e error) {
 		return a.process_ctr(base64decode(input), key, int_to_bytes(uint64(0)), 0)
 	}
 
@@ -1499,7 +1499,7 @@ func ctr_fixed_nonce(shortest bool) ([]byte, []byte) {
 	var longest_len, longest_idx int
 	var shortest_len int = len(plaintexts[0])
 	for k, v := range plaintexts {
-		ciphertexts[k], keystreams[k] = ctr_encrypt(v)
+		ciphertexts[k], keystreams[k], _ = ctr_encrypt(v)
 		if len(ciphertexts[k]) > longest_len {
 			longest_len = len(ciphertexts[k])
 			longest_idx = k
@@ -1836,4 +1836,34 @@ func mt_stream_break() (int, int) {
 
 	fmt.Printf("attacker recovered seed: %d\n", att_seed)
 	return true_seed, att_seed
+}
+
+func break_ctr_seek_edit() ([]byte, []byte) {
+	ecb_cipherbytes := decodebase64_file("./1_7.txt")
+	a := AES{}
+	plainbytes := a.Decrypt_ECB(ecb_cipherbytes, []byte("YELLOW SUBMARINE"))
+
+	key, nonce := randomAESkey(), randomAESkey()[0:8]
+	cipherbytes, _, err := a.process_ctr(plainbytes, key, nonce, 0)
+	if err != nil {
+		fmt.Printf("error with CTR encrypt on attack setup: %s\n", err)
+	}
+
+	attacker_oracle := func(offset int, new_plainbytes []byte) ([]byte, error) {
+		return a.ctr_seek_edit(slices.Clone(cipherbytes), key, nonce, offset, new_plainbytes)
+	}
+
+	// All 0s would work, but this is to show the attack works despite choice of substituted plaintext
+	att_newplainbytes := make([]byte, len(cipherbytes))
+	for k, _ := range att_newplainbytes {
+		att_newplainbytes[k] = randombyte(0, 255)
+	}
+	att_modified_cipherbytes, err := attacker_oracle(0, att_newplainbytes)
+	if err != nil {
+		fmt.Printf("error with CTR seek edit in attack: %s\n", err)
+	}
+	att_recovered_keystream := fixedxor(att_modified_cipherbytes, att_newplainbytes)
+	att_recovered_plainbytes := fixedxor(cipherbytes, att_recovered_keystream)
+	fmt.Printf("recovered plainbytes: %s\n", att_recovered_plainbytes)
+	return plainbytes, att_recovered_plainbytes
 }

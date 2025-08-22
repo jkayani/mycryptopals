@@ -190,7 +190,7 @@ func (a *AES) makeroundkeys(direction bool) {
 	for round < ROUND_COUNT {
 		if len(roundkey) == keylen_words {
 			a.roundkeys = append(a.roundkeys, roundkey)
-			a.debugf("expandroundkey: generated round key: %v for round %d\n", roundkey, round)
+			// a.debugf("expandroundkey: generated round key: %v for round %d\n", roundkey, round)
 			roundkey = []word{}
 			round += 1
 		} else {
@@ -242,9 +242,9 @@ func (a *AES) blockiterator(round int, direction bool, op func (round int, direc
 }
 
 func (a *AES) addroundkey(round int) {
-	a.debugf("addroundkey: cipherbytes BEFORE adding round key from round %d: %v\n", round, a.cipherbytes)
+	// a.debugf("addroundkey: cipherbytes BEFORE adding round key from round %d: %v\n", round, a.cipherbytes)
 	a.blockiterator(round, false, func(r int, d bool, state []word) []word {
-		a.debugf("addroundkey: operating on block %v\n", state)
+		// a.debugf("addroundkey: operating on block %v\n", state)
 
 		// The bytes of the round key correspond to the cipher bytes in order they appear
 		// Thus, skip transpose - data is aleady in the right order
@@ -253,14 +253,14 @@ func (a *AES) addroundkey(round int) {
 		}
 		return state
 	})
-	a.debugf("addroundkey: cipherbytes AFTER adding round key from round %d: %v\n", round, a.cipherbytes)
+	// a.debugf("addroundkey: cipherbytes AFTER adding round key from round %d: %v\n", round, a.cipherbytes)
 }
 
 func (a *AES) shiftrows(round int, direction bool) {
-	a.debugf("shiftrows: cipherbytes BEFORE %t shift on round %d: %v\n", direction, round, a.cipherbytes)
+	// a.debugf("shiftrows: cipherbytes BEFORE %t shift on round %d: %v\n", direction, round, a.cipherbytes)
 	a.blockiterator(round, direction, func(r int, d bool, state []word) []word {
 		s := transpose(state)
-		a.debugf("shiftrows: operating on block %v; transpose => %v\n", state, s)
+		// a.debugf("shiftrows: operating on block %v; transpose => %v\n", state, s)
 
 		// Shift all but first row/word left by j
 		for j := 1; j < len(s); j += 1 {
@@ -272,14 +272,14 @@ func (a *AES) shiftrows(round int, direction bool) {
 		}
 		return transpose(s)
 	})
-	a.debugf("cipherbytes AFTER %t shift on round %d: %v\n", direction, round, a.cipherbytes)
+	// a.debugf("cipherbytes AFTER %t shift on round %d: %v\n", direction, round, a.cipherbytes)
 }
 
 func (a *AES) substitute(round int, direction bool) {
-	a.debugf("substitute: cipherbytes BEFORE %t substitute on round %d: %v\n", direction, round, a.cipherbytes)
+	// a.debugf("substitute: cipherbytes BEFORE %t substitute on round %d: %v\n", direction, round, a.cipherbytes)
 	a.blockiterator(round, direction, func(r int, d bool, state []word) []word {
 		s := transpose(state)
-		a.debugf("substitute: operating on block %v; transpose => %v\n", state, s)
+		// a.debugf("substitute: operating on block %v; transpose => %v\n", state, s)
 
 		// For each word in the s, substitute each byte of each word
 		for wnum := 0; wnum < len(s); wnum += 1 {
@@ -293,13 +293,13 @@ func (a *AES) substitute(round int, direction bool) {
 		}
 		return transpose(s)
 	})
-	a.debugf("substitute: cipherbytes AFTER %t substitute on round %d: %v\n", direction, round, a.cipherbytes)
+	// a.debugf("substitute: cipherbytes AFTER %t substitute on round %d: %v\n", direction, round, a.cipherbytes)
 }
 
 func (a *AES) mixcols(round int, direction bool) {
-	a.debugf("mixcols: cipherbytes BEFORE %t mix columns on round %d: %v\n", direction, round, a.cipherbytes)
+	// a.debugf("mixcols: cipherbytes BEFORE %t mix columns on round %d: %v\n", direction, round, a.cipherbytes)
 	a.blockiterator(round, direction, func(r int, d bool, state []word) []word {
-		a.debugf("mixcols: operating on block %v\n", state)
+		// a.debugf("mixcols: operating on block %v\n", state)
 		
 		matrix := mix
 		if direction {
@@ -313,7 +313,7 @@ func (a *AES) mixcols(round int, direction bool) {
 		}
 		return state
 	})
-	a.debugf("mixcols: cipherbytes AFTER %t mix columns on round %d: %v\n", direction, round, a.cipherbytes)
+	// a.debugf("mixcols: cipherbytes AFTER %t mix columns on round %d: %v\n", direction, round, a.cipherbytes)
 }
 
 func (a *AES) Decrypt_ECB(cipherbytes, key []byte) []byte {
@@ -322,8 +322,8 @@ func (a *AES) Decrypt_ECB(cipherbytes, key []byte) []byte {
 	a.makeroundkeys(true)
 	result := a.decrypt_ecb()
 
-	fmt.Printf("AES ECB decrypt complete: %s\n", string(result))
-	a.debugf("raw bytes: %v\n\n", result)
+	// fmt.Printf("AES ECB decrypt complete: %s\n", string(result))
+	// a.debugf("raw bytes: %v\n\n", result)
 
 	return result
 }
@@ -341,7 +341,7 @@ func (a *AES) DecryptFile_ECB(filename, key string) []byte {
 	result := a.decrypt_ecb()
 
 	fmt.Printf("AES ECB decrypt complete: %s\n", string(result))
-	a.debugf("raw bytes: %v\n\n", result)
+	// a.debugf("raw bytes: %v\n\n", result)
 
 	return result
 }
@@ -394,7 +394,7 @@ func (a *AES) Encrypt_ECB(cipherbytes, key []byte) []byte {
 	// b16 := base16encode_bytes(result)
 
 	// fmt.Printf("AES ECB encrypt complete: %s\n", b16)
-	a.debugf("raw bytes: %v\n\n", result)
+	// a.debugf("raw bytes: %v\n\n", result)
 
 	return result
 }
@@ -520,25 +520,29 @@ func int_to_bytes(input uint64) []byte {
 	return result
 }
 
-func (a *AES) process_ctr(inbytes, key, nonce []byte, counter_init uint64) ([]byte, []byte) {
-	var counter uint64 = 0
+func (a *AES) process_ctr(inbytes, key, nonce []byte, counter_init uint64) ([]byte, []byte, error) {
+	var counter uint64 = counter_init
 	result := []byte{}
 	keystream := []byte{}
 
+	if len(nonce) != 8 {
+		return nil, nil, fmt.Errorf("AES-CTR: invalid nonce supplied - 8 bytes required, got: %d bytes", len(nonce))
+	}
+
 	for i := 0; i < blocklen(inbytes); i += 1 {
 		counter_bytes := int_to_bytes(counter)
+		curr_block := nth_block(inbytes, i)
 
 		// The counter has to be in little-endian
 		slices.Reverse(counter_bytes)
 
-		payload := append(slices.Clone(nonce), counter_bytes...)
-		cipherbytes := a.Encrypt_ECB(payload, key)
-		a.debugf("block %d: using counter value %d (%v), payload: %v\nCTR ciphertext: %v\n", i, counter, counter_bytes, payload, cipherbytes)
-
-		curr_block := nth_block(inbytes, i)
-
 		// Only use as much ciphertext as there is input data left to work with
-		r := fixedxor(curr_block, cipherbytes[0: len(curr_block)])
+		payload := append(slices.Clone(nonce), counter_bytes...)
+		cipherbytes := a.Encrypt_ECB(payload, key)[0: len(curr_block)]
+		a.debugf("block %d: using counter value %d (%v), payload: %v (%d)\nCTR keystream: %v\n", i, counter, counter_bytes, payload, len(payload), cipherbytes)
+
+
+		r := fixedxor(curr_block, cipherbytes)
 		result = append(result, r...)
 		// a.debugf("\nblock %d\nbefor: %v\nafter: %v\n\n", i, curr_block, r)
 
@@ -546,5 +550,16 @@ func (a *AES) process_ctr(inbytes, key, nonce []byte, counter_init uint64) ([]by
 		keystream = append(keystream, cipherbytes...)
 	}
 
-	return result, keystream
+	return result, keystream, nil
+}
+
+func (a *AES) ctr_seek_edit(cipherbytes, key, nonce []byte, offset int, new_plainbytes []byte) ([]byte, error) {
+	_, keystream, err := a.process_ctr(cipherbytes, key, nonce, 0)
+	if err != nil {
+		return nil, err
+	}
+	for i := offset; i < len(new_plainbytes) + offset; i += 1 {
+		cipherbytes[i] = xorbytes(new_plainbytes[i - offset], keystream[i])
+	}
+	return cipherbytes, nil
 }

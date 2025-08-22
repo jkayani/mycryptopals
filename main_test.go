@@ -382,3 +382,18 @@ func Test_Break_MT_Stream(tt *t.T) {
 		tt.Fatalf("Crack MT19937 seed from stream cipher failed: actual: %d, expected: %d\n", a, e)
 	}
 }
+func BenchmarkBreak_MT_Stream(tt *t.B) {
+	for range tt.N {
+		e, a := mt_stream_break()
+		if e != a {
+			tt.Fatalf("Crack MT19937 seed from stream cipher failed: actual: %d, expected: %d\n", a, e)
+		}
+	}
+}
+
+func Test_Break_CTR_Seek_Edit(tt *t.T) {
+	e, a := break_ctr_seek_edit()
+	if !slices.Equal(e, a) {
+		tt.Fatalf("Break AES-CTR via random (seek) edit failed: actual: %d, expected: %d\n", a, e)
+	}
+}
