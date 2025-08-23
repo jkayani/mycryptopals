@@ -392,6 +392,9 @@ func TestProcess_CTR(tt *t.T) {
 	a := AES{debug: false}
 	input := base64decode("L77na/nrFsKvynd6HzOoG7GHTLXsTVu9qvY/2syLXzhPweyyMTJULu/6/kXX0KSvoOLSFQ==")
 	out, keystream, err := a.process_ctr(input, []byte("YELLOW SUBMARINE"), int_to_bytes(0), 0)
+	if len(input) != len(out) {
+		tt.Fatalf("incorrect len of ciphertext returned for AES-CTR mode: expected %d, got: %d\n", len(input), len(out))
+	}
 	if len(keystream) != len(out) {
 		tt.Fatalf("incorrect keystream returned for AES-CTR mode: expected: %d, got: %d\n", len(out), len(keystream))
 	}
