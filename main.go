@@ -1867,3 +1867,55 @@ func break_ctr_seek_edit() ([]byte, []byte) {
 	fmt.Printf("recovered plainbytes: %s\n", att_recovered_plainbytes)
 	return plainbytes, att_recovered_plainbytes
 }
+
+func ctr_bitflip() bool {
+	a := AES{debug: false}
+	key, nonce := randomAESkey(), randomAESkey()[0:8]
+	to_prepend := "comment1=cooking%20MCs;userdata="
+	to_append := ";comment2=%20like%20a%20pound%20of%20bacon"
+	oracle := func(input string) []byte {
+		escaped_bytes := []byte{}
+		for k, _ := range input {
+			b := input[k]
+			a := []byte{b}
+			if b == 0x3b || b == 0x3d {
+				a = []byte{0x22, b, 0x22}
+			}
+			escaped_bytes = append(escaped_bytes, a...)
+		}
+		plainbytes := append([]byte(to_prepend), escaped_bytes...)
+		plainbytes = append(plainbytes, []byte(to_append)...)
+		fmt.Printf("encrypting: %s\n", plainbytes)
+
+		r, _, err := a.process_ctr(plainbytes, key, nonce, 0)
+		if err != nil {
+			fmt.Printf("err CTR encrypting: %s\n", err)
+		}
+		return r
+	}
+	check := func(cipherbytes []byte) bool {
+		res, _, _ := a.process_ctr(cipherbytes, key, nonce, 0)
+		fmt.Printf("ctr_bitflip check decrypted result: %s\n%v\n", res, res)
+		pairs := parse_kv(res, 0x3d, 0x3b, 0x22)
+		fmt.Printf("ctr_bitflip: parsed k/v pairs: \n%v\n", pairs)
+
+		p, ok := pairs["admin"]
+		return ok && p == "true"
+	}
+
+	// Attack starts here
+	// Just like before: if a plaintext and ciphertext pair are known, keystream is known
+	att_input := "+admin+true"
+	att_plaintext := append(slices.Clone([]byte(to_prepend)), []byte(att_input)...)
+	att_plaintext = append(att_plaintext, to_append...)
+
+	att_ciphertext := oracle(att_input)
+	att_keystream := fixedxor(att_ciphertext, att_plaintext)
+
+	att_ciphertext[len(to_prepend)] = xorbytes(0x3b, att_keystream[len(to_prepend)])
+	idx := len(to_prepend) + len("+admin")
+	att_ciphertext[idx] = xorbytes(0x3d, att_keystream[idx])
+
+	return check(att_ciphertext)
+}
+	

@@ -397,3 +397,9 @@ func Test_Break_CTR_Seek_Edit(tt *t.T) {
 		tt.Fatalf("Break AES-CTR via random (seek) edit failed: actual: %d, expected: %d\n", a, e)
 	}
 }
+
+func Test_CTR_Bitflip(tt *t.T) {
+	if ! ctr_bitflip() {
+		tt.Fatalf("CTR bit flip failed")
+	}
+}
