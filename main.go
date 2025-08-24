@@ -1918,4 +1918,67 @@ func ctr_bitflip() bool {
 
 	return check(att_ciphertext)
 }
-	
+
+func check_ascii(in []byte) (int, error) {
+	for k, v := range in {
+		if v > 127 {
+			return k, fmt.Errorf("invalid ASCII byte: %d at %d", v, k)
+		}
+	}
+	return -1, nil
+}
+
+func cbc_key_as_iv() ([]byte, []byte) {
+	a := AES{debug: false}
+	key := randomAESkey()
+	iv := key
+	to_prepend := "comment1=cooking%20MCs;userdata="
+	to_append := ";comment2=%20like%20a%20pound%20of%20bacon"
+	oracle := func(input []byte) []byte {
+		escaped_bytes := []byte{}
+		for k, _ := range input {
+			b := input[k]
+			a := []byte{b}
+			if b == 0x3b || b == 0x3d {
+				a = []byte{0x22, b, 0x22}
+			}
+			escaped_bytes = append(escaped_bytes, a...)
+		}
+		plainbytes := append([]byte(to_prepend), escaped_bytes...)
+		plainbytes = append(plainbytes, []byte(to_append)...)
+		plainbytes_padded := pkcs7pad_bytes(plainbytes, blocklen(plainbytes) * blocksize_bytes)
+
+		return a.Encrypt_CBC(plainbytes_padded, key, iv)
+	}
+	check := func(cipherbytes []byte) ([]byte, error) {
+		res := a.Decrypt_CBC(cipherbytes, key, iv)
+		fmt.Printf("cbc_bitflip check decrypted result: %s\n%v\n", res, res)
+		if _, e := check_ascii(res); e != nil {
+			return res, e
+		}
+		return res, nil
+	}
+
+	// Attack starts here
+	// Normal CBC enc: C_n = enc((P_n) xor C_(n-1))
+	// Normal CBC dec: P_n = dec(C_n) xor C_(n-1)
+	// Attack: C_1, C_2, C_3 => C_1, 0, C_1
+	// P_3 = dec(C_1) xor 0 => dec(C_1) (not P_1)
+	// P_2 = garbage
+	// P_1 = dec(C_1) xor IV
+	// P_1 xor dec(C_1) = IV => P_1 xor P_3 = IV = key
+
+	p := []byte("joshisthebestest")
+	att_plainbytes := append(slices.Clone(p), p...)
+	att_plainbytes = append(att_plainbytes, p...)
+	att_cipher := oracle(att_plainbytes)
+
+	first := nth_block(att_cipher, 0)
+	att_new_cipher := append(slices.Clone(first), make([]byte, blocksize_bytes)...)
+	att_new_cipher = append(att_new_cipher, first...)
+
+	att_plain, err := check(att_new_cipher)
+	fmt.Printf("output: %v (%d)\nerr: %v\n", att_plain, len(att_plain), err)
+	att_key := fixedxor(nth_block(att_plain, 0), nth_block(att_plain, 2))
+	return key, att_key
+}

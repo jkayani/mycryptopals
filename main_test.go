@@ -403,3 +403,10 @@ func Test_CTR_Bitflip(tt *t.T) {
 		tt.Fatalf("CTR bit flip failed")
 	}
 }
+
+func Test_CBC_Key_as_IV(tt *t.T) {
+	e, a := cbc_key_as_iv()
+	if !slices.Equal(e, a) {
+		tt.Fatalf("Recover AES-CBC key when key=IV failed: actual: %v, expected: %v\n", a, e)
+	}
+}

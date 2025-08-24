@@ -229,6 +229,8 @@ If the same AES key and same nonce are used to encrypt multiple plaintexts, the 
 
 This works less and less effectively the more the keystream is deduced, since there becomes fewer and fewer ciphertext samples to use (assuming the ciphertexts are of variable-length)
 
+The usage of XOR here also means any situation where a combination of plaintext and ciphertext (under constant key) is known, is vulernable to modifications of ciphertext to yield arbitrary plaintexts. This is because the keystream can be easily derived from XOR'ing plaintext and ciphertext which in turn can be used to encrypt desired plaintexts
+
 #### Mersenne Twister
 
 <https://en.wikipedia.org/wiki/Mersenne_Twister>
@@ -390,4 +392,4 @@ func mt_seed_crack() {
 </pre>
 </details>
 
-It turns out, the point of the exercise in cracking the seed was to demonstrate how easily guessed the RNG seed is, since it's easy to check guesses and it's easy to make guesses if the seed is based on something like a timestamp. I definitely over-thought this one.
+It turns out, the point of the exercise in cracking the seed was to demonstrate how easily guessed the RNG seed is when sample RNG outputs are known, since it's easy to check guesses and it's also easy to make guesses if the seed is based on something like a timestamp. I definitely over-thought this one.
