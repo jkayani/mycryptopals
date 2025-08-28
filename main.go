@@ -6,458 +6,17 @@ import (
 	"slices"
 	"math"
 	"math/rand"
-	"strconv"
-	"os"
-	"bufio"
 	"strings"
 	"regexp"
 	"time"
 
-	// "golang.org/x/exp/constraints"
+	"jkayani.local/mycrypto/utils"
+	"jkayani.local/mycrypto/aes"
+	"jkayani.local/mycrypto/rng"
 )
 
 func main() {
 	fmt.Println("nothing")
-}
-
-func read(file string) *bufio.Scanner {
-	f, err := os.Open(file)
-	if err != nil {
-		fmt.Printf("cannot read %s: %s", file, err)
-	}
-
-	return bufio.NewScanner(f)
-}
-
-func bits(n, padding int) []int {
-	bits := make([]int, 0)
-
-	// Calculate bits (in reverse order)
-	k := n
-	for k > 1 {
-		bits = append(bits, k % 2)
-		k /= 2
-	}
-
-	// Pad
-	bits = append(bits, k)
-	for k = len(bits); k < padding; k += 1 {
-		bits = append(bits, 0)
-	}
-
-	slices.Reverse(bits)
-	return bits
-}
-
-func bitval(bits []int) int {
-	var sum int
-
-	// Compute decimal value of given bits
-	// for bit := 0; bit < len(bits); bit += 1 {
-	// 	sum += int(math.Pow(float64(2), float64(len(bits) - bit - 1))) * bits[bit]
-	// }
-
-	for k, v := range bits {
-		sum |= v << (len(bits) - k - 1)
-	}
-	return sum
-}
-
-func tobase64(val int) (ascii int) {
-	if val == 62 {
-
-		// maps to +
-		ascii = 43
-	} else if val == 63 {
-
-		// maps to /
-		ascii = 47
-	} else if val > 51 {
-
-		// values that map to digits
-		ascii = val - (52 - 48)
-	} else if val > 25{
-
-		// values that map to lower-case
-		ascii = val + (97 - 26)
-	} else {
-
-		// values that map to upper-case
-		ascii = 65 + val
-	}
-	return 
-}
-
-func tobase16(val int) (ascii int) {
-	if val >= 10 {
-		return 87 + val
-	}
-	return 48 + val
-}
-
-// TODO: replace with strconv.ParseInt
-func frombase16char_tovalue(digit byte) (val int) {
-	var modifier int
-	if int(digit) >= 97 {
-		modifier = 87
-	} else if int(digit) >= 65 {
-		modifier = 55
-	} else {
-		modifier = 48
-	}
-	return int(digit) - modifier
-}
-
-func frombase64char_tovalue(digit byte) (val byte) {
-	if digit == 43 {
-
-		// maps to +
-		val = 62
-	} else if digit == 47 {
-
-		// maps to /
-		val = 63
-	} else if digit >= 48 && digit <= 57 {
-
-		// values that map to digits
-		val = (digit - 48) + 52
-	} else if digit >= 97 && digit <= 122 {
-
-		// values that map to lower-case
-		val = (digit - 97) + 26
-	} else {
-
-		// values that map to upper-case
-		val = digit - 65
-	}
-
-	return val
-}
-
-func hex2base64_naive(hex string) string {
-	bitstream := make([]int, 0)
-
-	for k := 0; k < len(hex); k += 1 {
-
-		// hex to binary, resolving hex digits to decimal values
-		order := bits(frombase16char_tovalue(hex[k]), 4)
-
-		// fmt.Printf("\nconvert %c as %d => %v", hex[k], int(hex[k]) - modifier, order)
-		bitstream = append(bitstream, order...)
-	}
-
-	// fmt.Printf("\n%v (%s)", bitstream, hex)
-
-	var result string
-
-	// in base64 each char holds 6 bits
-	for k := 0; k < len(bitstream); k += 6 {
-
-		if (k + 5 >= len(bitstream)) {
-			// if < 6 bits left, pad with 0
-			v := bitstream[k:len(bitstream)]
-			for i := len(v); i < 6; i += 1 {
-				v = append(v, 0)
-			}
-
-			// convert result
-			a := tobase64(bitval(v))
-			// fmt.Printf("\nend: %d => (%c) (%d)", bitval(v), a, a)
-			result += fmt.Sprintf("%c", a)
-			break
-		}
-
-		nextbits := bitstream[k:k + 6]
-		val := bitval(nextbits)
-	
-		ascii := tobase64(val)
-		char := fmt.Sprintf("%c", ascii)
-		result += char
-
-		// fmt.Printf("\n6 bits: %v, %d, base64: %s (%d)", nextbits, val, char, ascii)
-	}
-
-	return result
-}
-
-func firstmask(firstkbits int) byte {
-	switch firstkbits {
-	case 1:
-		return 0x80
-	case 2:
-		return 0xc0
-	case 3:
-		return 0xe0
-	case 4:
-		return 0xf0
-	case 5:
-		return 0xf8
-	case 6:
-		return 0xfc
-	case 7:
-		return 0xfe
-	case 8:
-		return 0xff
-	}
-	return 0x0
-}
-
-func lastmask(lastkbits int) byte {
-	switch lastkbits {
-	case 1:
-		return 0x1;
-	case 2:
-		return 0x3;
-	case 3:
-		return 0x7;
-	case 4:
-		return 0xf;
-	}
-	return 0x0;
-}
-
-func hex2base64_bitwise(hex string) (result string) {
-	currbitcnt, leftoverbitcnt := 0, 0
-	var currbits, leftoverbits byte
-	requiredbits := 6
-
-	sixbits := make([]byte, 0)
-	for i, _ := range(hex) {
-		hexdigit := hex[i]
-
-		// Find bitwise value of hexdigit and place in first 4 bits
-		val := byte(frombase16char_tovalue(hexdigit))
-		nibble := val << 4
-
-		bitwise := bits(int(nibble), 8)
-		fmt.Printf("\n%c has value %d. Shifted over to yield %d (%v)", hexdigit, val, nibble, bitwise)
-		fmt.Printf("\ncurrent bit count: %d, required bits to yield 6: %d", currbitcnt, requiredbits)
-
-		if requiredbits > currbitcnt {
-			// Use entirety of hexdigit's bits
-
-			// Shift the bits over so they don't overlap with already obtained bits
-			currbits |= (nibble >> currbitcnt)
-			currbitcnt += 4
-			requiredbits -= 4
-			currbits_bitwise := bits(int(currbits), 8)
-			fmt.Printf("\nconsumed val %d to yield currbits %d (%v), current bit count: %d, required bits to yield 6: %d", val, currbits, currbits_bitwise, currbitcnt, requiredbits)
-		}	else {
-			// Only part of the hexdigit's bits are needed
-
-			// Extract first kth bits, shifting them over to not overlap with already obtained bits
-			mask := firstmask(requiredbits)
-			nextbits := ((nibble & mask) >> currbitcnt)
-
-			nextbits_bitwise := bits(int(nextbits), 8)
-			fmt.Printf("\napplied mask 0x%x to %d (%v) obtain bits %d (%v)", mask, nibble, bitwise, nextbits, nextbits_bitwise)
-
-			// Add the extracted bits to current collection
-			currbits |= nextbits
-			currbits_bitwise := bits(int(currbits), 8)
-			currbitcnt += requiredbits
-			fmt.Printf("\ncurrent bits: %d (%v)", currbits, currbits_bitwise)
-
-			// The remaining bits are as follows:
-			// Take the hex digit as originally found (where sig. bits are in last 4)
-			// Take the last 2 bits from that
-			// Shift those bits to top of byte
-			leftoverbitcnt = 4 - requiredbits
-			leftoverbits = (val & lastmask(leftoverbitcnt)) << (8 - leftoverbitcnt)
-			leftoverbits_bitwise := bits(int(leftoverbits), 8)
-			fmt.Printf("\nleft-over bits: %d (%v), left-over count: %d", leftoverbits, leftoverbits_bitwise, leftoverbitcnt)
-		}
-
-		// Desired bit count obtained, store collected value and reset state
-		if currbitcnt == 6 {
-
-			// Collected value must be shifted into correct pos to be read correctly
-			currbits >>= 2
-			currbits_bitwise := bits(int(currbits), 8)
-			sixbits = append(sixbits, currbits)
-			fmt.Printf("\n6 bit value obtained, shifted left: %d (%v), 6 bit values thus far: %v", currbits, currbits_bitwise, sixbits)
-
-			// If any left over bits, use them toward next collection
-			currbits = leftoverbits
-			currbitcnt = leftoverbitcnt
-			requiredbits = 6 - leftoverbitcnt
-
-			leftoverbits = 0
-			leftoverbitcnt =0
-		}
-	}
-
-	for _, val := range(sixbits) {
-		result += fmt.Sprintf("%c", tobase64(int(val)))
-	}
-
-	return result
-}
-
-func hexdecode(hex string) (bytes []byte) {
-	var i int
-	for i = 0; i < len(hex) - 1; i += 2 {
-		hexv, _ := (strconv.ParseUint(hex[i:i + 2], 16, 8))
-		bytes = append(bytes, byte(hexv))
-	}
-	if i != len(hex) {
-		hexv, _ := (strconv.ParseUint(hex[i:i + 1] + "0", 16, 8))
-		bytes = append(bytes, byte(hexv))
-	}
-	return
-}
-
-func base64decode(base64 string) (bytes []byte) {
-	bytes = []byte{}
-
-	bitstaken := 0
-	bitsleft := 6
-	c := 0
-	var bits, value byte = 0, frombase64char_tovalue(base64[c]) << 2
-	for {
-		// fmt.Printf("Bits taken: %d, bits left: %d\n", bitstaken, bitsleft)
-
-		if bitstaken == 8 {
-			// fmt.Printf("byte: %d\n", bits)
-			bytes = append(bytes, bits)
-			bits, bitstaken = 0, 0
-		}
-
-		if bitsleft == 0 {
-			c += 1 
-
-			// Consider padding chars as end of availible bits
-			if c == len(base64) || base64[c] == 61 {
-				break
-			}
-			value = frombase64char_tovalue(base64[c]) << 2
-			// fmt.Printf("No bits left, increment to byte %d, next value %d. Byte so far %d\n", c, value, bits)
-			bitsleft = 6
-		}
-
-		needed := 8 - bitstaken
-		var mask int
-		if needed <= bitsleft {
-			mask = needed
-		} else {
-			mask = bitsleft
-		}
-
-		bits |= (value & firstmask(mask)) >> bitstaken
-		value <<= mask
-		bitsleft -= mask
-		bitstaken += mask
-		// fmt.Printf("Byte now: %d, bitstaken: %d, value left %d\n", bits, bitstaken, value)
-	}
-
-	// TODO; why are the leftover bits discarded?
-	// if bitstaken == 8 {
-	// 	fmt.Printf("%d bits were taken but no more to fill byte, append %d\n", bitstaken, bits)
-	// 	bytes = append(bytes, bits)
-	// }
-
-	return
-}
-
-func hex2base64_bytes(bytes []byte) []byte {
-
-	// Byte being used in byte stream
-	bindex := 0
-
-	// Number of bits toward 6
-	bitstaken := 0
-
-	// Number of bits left in bytes[bindex]
-	bitsleft := 8
-
-	// hextet built
-	b64_val := byte(0)
-
-	// bytes of base64 values
-	result := make([]byte, 0)
-
-	for bindex < len(bytes) {
-		if bitstaken == 6 {
-
-			// The hextet must have its 6 bits shifted to the end to be interpeted correctly
-			b64_val >>= 2
-			result = append(result, b64_val)
-
-			fmt.Printf("result: %d => %s\n", b64_val, base64encode_bytes(result))
-
-			bitstaken = 0
-			b64_val = 0
-		} else {
-
-			// Move on to next byte
-			// There might not be another, so stop and re-evaluate loop condition
-			if bitsleft == 0 {
-				bindex += 1
-				bitsleft = 8
-				continue
-			}
-
-			// There may not be enough bits left in the current byte to fill the hextet
-			// Take whatever we can, or everything we need, depending on what's there
-			var mask int
-			bitsneeded := 6 - bitstaken
-			if bitsleft > bitsneeded {
-				mask = bitsneeded
-			} else {
-				mask = bitsleft
-			}
-
-			// Take the bits, shifting them right so they don't collide with pre-existing bits in hextet
-			// Remove taken bits from current byte by left shift
-			bits := (bytes[bindex] & firstmask(mask))
-			bytes[bindex] <<= mask
-			bits >>= bitstaken
-
-			bitstaken += mask
-			bitsleft -= mask
-		
-			b64_val |= bits
-		}
-	}
-
-	// Add any left-over bits
-	if bitstaken > 0 {
-			b64_val >>= 2
-			result = append(result, b64_val)
-			fmt.Printf("result: %d => %s\n", b64_val, base64encode_bytes(result))
-	}
-
-	return result
-}
-
-func base64encode_bytes(bytes []byte) (result string) {
-	for _, b := range(bytes) {
-		result += fmt.Sprintf("%c", tobase64(int(b)))
-	}
-	return
-}
-
-func base16encode_bytes(bytes []byte) (result string) {
-	for _, b := range(bytes) {
-		result += fmt.Sprintf("%c%c", tobase16(int((b & firstmask(4)) >> 4)), tobase16(int(b & lastmask(4))))
-	}
-	return
-}
-
-func fixedxor(hex1, hex2 []byte) (result []byte) {
-	result = make([]byte, 0)
-	for i := 0; i < len(hex1); i +=1 {
-		result = append(result, xorbytes(hex1[i], hex2[i]))
-	}
-	return result
-}
-
-func xorbytes[T int | byte](val1, val2 T) (T) {
-	// or the bits to determine where at least 1 is set
-	// and the bits to determine where both are set
-	// -> negate above to determine where either only 1 is set, or neither
-	// -> -> and above negation with the or to find where exactly 1 is set
-	return ((val1 | val2) & ^(val1 & val2))
 }
 
 func rankplaintext(bytes []byte) (score float64) {
@@ -512,7 +71,7 @@ func xordecrypt(bytes []byte) () {
 		ascii := ""
 		rbytes := []byte{}
 		for _, b := range(bytes) {
-			xor := fixedxor([]byte{b}, []byte{i})
+			xor := utils.Fixedxor([]byte{b}, []byte{i})
 			rbytes = append(rbytes, xor[0])
 			ascii += string(xor)
 		}
@@ -540,11 +99,11 @@ func findxoredstring() {
 	}
 	data := map[string]result{}
 
-	s := read("1_4.txt")
+	s := utils.Read("1_4.txt")
 	for s.Scan() {
 		t := s.Text()
 		data[t] = result{
-			cipherbytes: hexdecode(t),
+			cipherbytes: utils.Hexdecode(t),
 		}
 	}
 
@@ -556,7 +115,7 @@ func findxoredstring() {
 		for i = 32; i < 123; i +=1 {
 			plainbytes := []byte{}
 			for _, b := range(r.cipherbytes) {
-				plainbytes = append(plainbytes, fixedxor([]byte{b}, []byte{i})[0])
+				plainbytes = append(plainbytes, utils.Fixedxor([]byte{b}, []byte{i})[0])
 			}
 			rank := rankplaintext(plainbytes)
 			if rank > bestscore {
@@ -593,38 +152,13 @@ func repeatingxor(bytes []byte, key string) string {
 	k := 0
 	result := []byte{}
 	for _, b := range bytes {
-		result = append(result, fixedxor([]byte{b}, []byte{keybytes[k]})[0])
+		result = append(result, utils.Fixedxor([]byte{b}, []byte{keybytes[k]})[0])
 		k = (k + 1) % len(keybytes)
 	}
 
-	hex := base16encode_bytes(result)
+	hex := utils.Base16encode_bytes(result)
 	// fmt.Printf("encrypt %v with %s => %s\n", bytes, key, hex)
 	return hex
-}
-
-func hamming(onebytes, twobytes []byte) int {
-	xorbytes := fixedxor(onebytes, twobytes)
-	var set, bindex int
-	for i := 0; i < len(xorbytes) * 8; i += 1 {
-		if i > 0 && i % 8 == 0 {
-			bindex += 1
-		}
-
-		if xorbytes[bindex] & firstmask(1) > 0 {
-			set += 1
-		}
-		xorbytes[bindex] <<= 1
-	}
-	return set
-}
-
-func decodebase64_file(file string) []byte {
-	bytes := []byte{}
-	s := read(file)
-	for s.Scan() {
-		bytes = append(bytes, base64decode(s.Text())...)
-	}
-	return bytes
 }
 
 // Take K samples (K must be even) and average the pair-wise hamming dist
@@ -646,7 +180,7 @@ func evalkeysize(bytes []byte, lb, ub, samplesize int) int {
 
 		var avg float64
 		for j := 0; j < samplesize - 1; j += 2 {
-			avg += float64(hamming(samples[j], samples[j + 1])) / float64(i)
+			avg += float64(utils.Hamming(samples[j], samples[j + 1])) / float64(i)
 		}
 		avg /= float64(samplesize / 2)
 
@@ -688,7 +222,7 @@ func findkeysize(bytes []byte, lb, ub, uppersamplesize int) int {
 
 func decryptrepeatedxor(bytes []byte, keysize int) {
 
-	// Split byte slices by index (up to keysize) into fixedxor byte slices
+	// Split byte slices by index (up to keysize) into utils.Fixedxor byte slices
 	// i.e, take each 1st byte into slice, each 2nd byte, etc
 	chunks := make([][]byte, keysize)
 	i := 0
@@ -705,7 +239,7 @@ func decryptrepeatedxor(bytes []byte, keysize int) {
 		for i = 32; i < 123; i += 1 {
 			xoredbytes := []byte{}
 			for _, b := range c {
-				xoredbytes = append(xoredbytes, fixedxor([]byte{b}, []byte{i})[0])
+				xoredbytes = append(xoredbytes, utils.Fixedxor([]byte{b}, []byte{i})[0])
 			}
 			r := rankplaintext(xoredbytes)
 			// fmt.Printf("XORed %dth bytes from each %d block against %d => ?, rank %f\n", cnum, keysize, i, r)
@@ -742,7 +276,7 @@ func findaesecb(hex string) bool {
 	wordlen_hexchar := 32
 	table := map[string]int{}
 	if len(hex) % wordlen_hexchar != 0 {
-		fmt.Printf("%s cannot be AES 128 since length isn't multiple of 16 bytes\n", hex)
+		fmt.Printf("%s cannot be aes.AES 128 since length isn't multiple of 16 bytes\n", hex)
 		return false
 	}
 	for i := 0; i < len(hex); i += wordlen_hexchar {
@@ -757,46 +291,15 @@ func findaesecb(hex string) bool {
 }
 
 func detectaes_ecb(file string) string {
-	s := read(file)
+	s := utils.Read(file)
 	for s.Scan() {
 		t := s.Text()
 		if findaesecb(t) {
-			fmt.Printf("AES-128 in ECB mode line: %s\n", t)
+			fmt.Printf("aes.AES-128 in ECB mode line: %s\n", t)
 			return t
 		}
 	}
 	return ""
-}
-
-func pkcs7pad(ascii string, length_bytes int) string {
-	n := length_bytes - len(ascii)
-	b := []byte(ascii)
-	for i := 0; i < n; i += 1 {
-		b = append(b, byte(n))
-	}
-	return base16encode_bytes(b)
-}
-
-func pkcs7pad_bytes(b []byte, length_bytes int) []byte {
-	n := length_bytes - len(b)
-	for i := 0; i < n; i += 1 {
-		b = append(b, byte(n))
-	}
-	return b
-}
-
-func randombyte(min, max byte) byte {
-	return byte(math.Round((rand.Float64() * float64(max - min)) + float64(min)))
-}
-
-func randomAESkey() []byte {
-	b := make([]byte, 16)
-	minbyte := byte(32)
-	maxbyte := byte(126)
-	for k, _ := range b {
-		b[k] = randombyte(minbyte, maxbyte)
-	}
-	return b
 }
 
 func randomencrypt(data []byte) ([]byte, string) {
@@ -809,26 +312,26 @@ func randomencrypt(data []byte) ([]byte, string) {
 	header := make([]byte, hlen)
 	footer := make([]byte, flen)
 	for k, _ := range header {
-		header[k] = randombyte(minbyte, maxbyte)
+		header[k] = utils.Randombyte(minbyte, maxbyte)
 	}
 	for k, _ := range footer {
-		footer[k] = randombyte(minbyte, maxbyte)
+		footer[k] = utils.Randombyte(minbyte, maxbyte)
 	}
 	plainbytes = append(header, plainbytes...)
 	plainbytes = append(plainbytes, footer...)
-	padlen := int(math.Ceil(float64(len(plainbytes)) / float64(keylen_words * wordlen_bytes))) * 16
-	plainbytes = pkcs7pad_bytes(plainbytes, padlen)
+	padlen := int(math.Ceil(float64(len(plainbytes)) / float64(aes.Keylen_words * aes.Wordlen_bytes))) * 16
+	plainbytes = utils.Pkcs7pad_bytes(plainbytes, padlen)
 	fmt.Printf("random header of size %d: %v\nrandom footer of size: %d: %v\nall data (padded to %d len): %v\n\n", hlen, header, flen, footer, padlen, plainbytes)
 
-	a := AES{}
+	a := aes.AES{}
 	var cipherbytes []byte
 	mode := int(math.Round(rand.Float64()))
 	modestr := ""
 	if mode == 0 {
-		cipherbytes = a.Encrypt_ECB(plainbytes, randomAESkey())
+		cipherbytes = a.Encrypt_ECB(plainbytes, aes.RandomAESkey())
 		modestr = "ECB"
 	} else {
-		cipherbytes = a.Encrypt_CBC(plainbytes, randomAESkey(), randomAESkey())
+		cipherbytes = a.Encrypt_CBC(plainbytes, aes.RandomAESkey(), aes.RandomAESkey())
 		modestr = "CBC"
 	}
 	fmt.Printf("random mode: %d (%s), data => %v\n", mode, modestr, cipherbytes)
@@ -842,27 +345,27 @@ func detectaes_cbc_ecb(data []byte) bool {
 	// and based on output, determine if ECB or not
 	// Thanks to https://crypto.stackexchange.com/questions/53274/cryptopals-challenge-2-11-distinguish-ecb-and-cbc-encryption?rq=1 for clarification
 	c, expectedmode := randomencrypt([]byte(data))
-	chex := base16encode_bytes(c)
+	chex := utils.Base16encode_bytes(c)
 
 	// EBC is easily distinguished via repeated blocks. If not obviously ECB, assume CBC
 	foundmode := "CBC"
 	if findaesecb(chex) {
 		foundmode = "ECB"
 	}
-	fmt.Printf("\n%s\nappears to be AES in %s mode\nactual result: %s\n", chex, foundmode, expectedmode)
+	fmt.Printf("\n%s\nappears to be aes.AES in %s mode\nactual result: %s\n", chex, foundmode, expectedmode)
 
 	return foundmode == expectedmode
 }
 
 func decryptecb_oneblock(mystery []byte) []byte {
-	a := AES{}
+	a := aes.AES{}
 
 	// This value is unknown to us
-	key := randomAESkey()
+	key := aes.RandomAESkey()
 
 	// Determine cipher block size by counting bytes of ciphertext
 	// We "don't know" what the padding length is
-	blocksize_bytes := len(pkcs7pad_bytes(a.Encrypt_ECB([]byte{0}, key), blocksize_bytes))
+	blocksize_bytes := len(utils.Pkcs7pad_bytes(a.Encrypt_ECB([]byte{0}, key), aes.Blocksize_bytes))
 	fmt.Printf("determined that 'mystery algorithm' has block size %d bytes\n", blocksize_bytes)
 
 	knownword := "josh"
@@ -870,11 +373,11 @@ func decryptecb_oneblock(mystery []byte) []byte {
 
 	// Verify cipher is operating in ECB mode
 	// We "don't know" which mode the cipher is using
-	if findaesecb(base16encode_bytes(a.Encrypt_ECB([]byte(fullknownblock + fullknownblock), key))) {
+	if findaesecb(utils.Base16encode_bytes(a.Encrypt_ECB([]byte(fullknownblock + fullknownblock), key))) {
 		fmt.Printf("verified that 'mystery algorithm' uses ECB mode\n")
 	}
 
-	foundblocks := []word{word{}}
+	foundblocks := []aes.Word{aes.Word{}}
 	blockidx := 0
 
 	// If the mystery data's length isn't block-multiple, pretend there's an extra block
@@ -905,14 +408,14 @@ func decryptecb_oneblock(mystery []byte) []byte {
 				end -= 1
 			}
 			knownblock := []byte(fullknownblock[0 : end])
-			payload := pkcs7pad_bytes(append(knownblock, mysteryblock...), 2 * blocksize_bytes)
+			payload := utils.Pkcs7pad_bytes(append(knownblock, mysteryblock...), 2 * blocksize_bytes)
 			// fmt.Printf("%d bytes of block %d found so far, using knownblock: %s for payload of size %d\n", len(foundblocks[blockidx]), blockidx, knownblock, len(payload))
 			result := a.Encrypt_ECB(payload, key)[0 : blocksize_bytes]
 
 			for j := 0; j < 255; j += 1 {
 				guesspayload := append(knownblock, foundblocks[blockidx]...)
 				guesspayload = append(guesspayload, byte(j))
-				guesspayload = pkcs7pad_bytes(guesspayload, 2 * blocksize_bytes)
+				guesspayload = utils.Pkcs7pad_bytes(guesspayload, 2 * blocksize_bytes)
 				// fmt.Printf("guessing byte %d (%c) as last byte in payload: %s\n", j, j, string(guesspayload))
 
 				r := a.Encrypt_ECB(guesspayload, key)[0 : blocksize_bytes]
@@ -930,50 +433,12 @@ func decryptecb_oneblock(mystery []byte) []byte {
 			panic(fmt.Sprintf("16 bytes of mystery data should have been found, got %d => %v\n", len(foundblocks[blockidx]), foundblocks[blockidx]))
 		}
 		blockidx += 1
-		foundblocks = append(foundblocks, word{})
+		foundblocks = append(foundblocks, aes.Word{})
 	}
 
-	final := wordstobytes(foundblocks)
+	final := aes.Wordstobytes(foundblocks)
 	fmt.Printf("mystery value: %s\n", final)
 	return final
-}
-
-func parse_kv(input []byte, mapchar, delimitter, escape byte) (pairs map[string]string) {
-	pairs = make(map[string]string)
-	var key, value []byte
-	inkey, escaped := true, false
-
-	// With cbc_bitflip, it's possible for one of the bytes from the scrambled cipherblock to
-	// yield the escape char which ruins the attack
-	// Only consider it as escape if used correctly (opening and closing quotes)
-	escapecnt := 0
-	for _, v := range input {
-		if v == escape {
-			escapecnt += 1
-		}
-	}
-	for _, v := range input {
-		if v == escape && escapecnt % 2 == 0 {
-			escaped = !escaped
-		}
-		if v == delimitter && ! escaped {
-			inkey = true
-			pairs[string(key)] = string(value)
-			key, value = []byte{}, []byte{}
-			continue
-		} else if v == mapchar && ! escaped {
-			inkey = false
-			continue
-		}
-
-		if inkey {
-			key = append(key, v)
-		} else {
-			value = append(value, v)
-		}
-	}
-	pairs[string(key)] = string(value)
-	return
 }
 
 // Make a function that returns an encrypted profile string given an email address: email=e&role=user
@@ -983,17 +448,17 @@ func ecb_cutpaste() string {
 		return fmt.Sprintf("email=%s&role=user", strings.ReplaceAll(strings.ReplaceAll(email, "&", ""), "=", ""))
 	}
 	parse_profile := func(profile string) map[string]string {
-		return parse_kv([]byte(profile), 0x3d, 0x26, 0x00)
+		return utils.Parse_kv([]byte(profile), 0x3d, 0x26, 0x00)
 	}
-	key := randomAESkey()
-	a := AES{}
+	key := aes.RandomAESkey()
+	a := aes.AES{}
 	oracle := func(email string) []byte {
 		in := []byte(profile_for(email))
-		plen := len(in) / blocksize_bytes
-		if len(in) % blocksize_bytes != 0 {
+		plen := len(in) / aes.Blocksize_bytes
+		if len(in) % aes.Blocksize_bytes != 0 {
 			plen += 1
 		}
-		in = pkcs7pad_bytes(in, plen * blocksize_bytes)
+		in = utils.Pkcs7pad_bytes(in, plen * aes.Blocksize_bytes)
 		fmt.Printf("padded input to len: %d\n", len(in))
 		return a.Encrypt_ECB(in, key)
 	}
@@ -1030,7 +495,7 @@ func ecb_cutpaste() string {
 
 	emaillen := len("email=") 
 	rolelen := len("&role=")
-	padlen := (blocksize_bytes - emaillen) + (blocksize_bytes - rolelen)
+	padlen := (aes.Blocksize_bytes - emaillen) + (aes.Blocksize_bytes - rolelen)
 	roleownblock := ""
 	for i := 0; i < padlen; i += 1 {
 		roleownblock += "a"
@@ -1039,35 +504,27 @@ func ecb_cutpaste() string {
 	roleownblockcipher := oracle(roleownblock)
 	// fmt.Printf("%v\n", roleownblockcipher)
 
-	headerlen := blocksize_bytes - emaillen
+	headerlen := aes.Blocksize_bytes - emaillen
 	adminlen := len("admin")
-	footerlen := blocksize_bytes - adminlen
+	footerlen := aes.Blocksize_bytes - adminlen
 	adminownblock := ""
 	for i := 0; i < headerlen; i += 1 {
 		adminownblock += "z"
 	}
 	adminownblock += "admin"
 	for i := 0; i < footerlen; i += 1 {
-		adminownblock += fmt.Sprintf("%c", blocksize_bytes - adminlen)
+		adminownblock += fmt.Sprintf("%c", aes.Blocksize_bytes - adminlen)
 	}
 	// fmt.Printf("pad to len %d to force admin to be in 2nd block => %s\n", headerlen + adminlen + footerlen, adminownblock)
 	adminownblockcipher := oracle(adminownblock)
 	// fmt.Printf("%v\n", adminownblockcipher)
 
-	targetciphertext := append(roleownblockcipher[0 : blocksize_bytes * 2], adminownblockcipher[blocksize_bytes : blocksize_bytes * 2]...)
+	targetciphertext := append(roleownblockcipher[0 : aes.Blocksize_bytes * 2], adminownblockcipher[aes.Blocksize_bytes : aes.Blocksize_bytes * 2]...)
 	// fmt.Printf("target cipher bytes:\n%v\n", targetciphertext)
 
 	result := login(targetciphertext)
 	fmt.Printf("login attempt: %s\n", result)
 	return parse_profile(result)["role"]
-}
-
-func blocklen(in []byte) int {
-	blocklen := len(in) / blocksize_bytes
-	if len(in) % blocksize_bytes != 0 {
-		blocklen += 1
-	}
-	return blocklen
 }
 
 // One byte at a time, determine contents of mystery data
@@ -1087,10 +544,10 @@ func decryptecb_random(mystery []byte) []byte {
 	randomprefix := []byte{}
 	fmt.Printf("generating %d random bytes of data\n", randomprefixlen)
 	for i := 0; i < randomprefixlen; i += 1 {
-		randomprefix = append(randomprefix, randombyte(0, 255))
+		randomprefix = append(randomprefix, utils.Randombyte(0, 255))
 	}
-	key := randomAESkey()
-	a := AES{}
+	key := aes.RandomAESkey()
+	a := aes.AES{}
 
 	// Just like before, it's not clear to me how this attack is useful
 	// In order to "bleed" blocks of mystery data beyond the first one into the "known block", 
@@ -1102,10 +559,10 @@ func decryptecb_random(mystery []byte) []byte {
 		if blockidx == -1 {
 			in = append(append(randomprefix, input...), mystery...)
 		} else {
-			s := blocksize_bytes * blockidx
-			in = append(append(randomprefix, input...), mystery[s:s + blocksize_bytes]...)
+			s := aes.Blocksize_bytes * blockidx
+			in = append(append(randomprefix, input...), mystery[s:s + aes.Blocksize_bytes]...)
 		}
-		return a.Encrypt_ECB(pkcs7pad_bytes(in, blocklen(in) * blocksize_bytes), key)
+		return a.Encrypt_ECB(utils.Pkcs7pad_bytes(in, utils.Blocklen(in) * aes.Blocksize_bytes), key)
 	}
 
 	// Attack starts here
@@ -1114,8 +571,8 @@ func decryptecb_random(mystery []byte) []byte {
 	// determine how many padding slots there would be of ECB encrypted known block + mystery
 	knownstring := "josh"
 	knownblock := []byte(knownstring + knownstring + knownstring + knownstring)
-	attackerinput_blocks := blocklen(mystery) + 1
-	paddingcnt_attacker := ((attackerinput_blocks) * 16) - (len(mystery) + blocksize_bytes)
+	attackerinput_blocks := utils.Blocklen(mystery) + 1
+	paddingcnt_attacker := ((attackerinput_blocks) * 16) - (len(mystery) + aes.Blocksize_bytes)
 	// fmt.Printf("calculated mystery data and known block to be %d blocks and have %d bytes of padding\n", attackerinput_blocks, paddingcnt_attacker)
 
 	// Core idea is to determine how much random data the oracle is prefixing
@@ -1123,7 +580,7 @@ func decryptecb_random(mystery []byte) []byte {
 	// There will be 3 distinct cases depending on how much random data there is:
 
 	res_attacker := oracle(knownblock, -1)
-	res_blocklen := blocklen(res_attacker)
+	res_blocklen := utils.Blocklen(res_attacker)
 	target_blocklen := res_blocklen + 1
 	random_len_attacker := 0
 
@@ -1133,8 +590,8 @@ func decryptecb_random(mystery []byte) []byte {
 	// => random len = padding slots + ((block_diff - 1)) * 16) + (16 - X)
 	if res_blocklen > attackerinput_blocks {
 		// fmt.Printf("oracle output has %d blocks of ciphertext, mystery data with known block has %d: random data > padding slots\n", res_blocklen, attackerinput_blocks)
-		random_len_attacker = paddingcnt_attacker + (res_blocklen - attackerinput_blocks - 1) * blocksize_bytes
-		paddingcnt_attacker = blocksize_bytes
+		random_len_attacker = paddingcnt_attacker + (res_blocklen - attackerinput_blocks - 1) * aes.Blocksize_bytes
+		paddingcnt_attacker = aes.Blocksize_bytes
 	}
 
 	input_attacker := append(knownblock, byte(0))
@@ -1149,7 +606,7 @@ func decryptecb_random(mystery []byte) []byte {
 		// case 2	
 		// random bytes == padding slots => will overflow immediately after adding 1 byte (X)
 		// => random len = padding slots
-		if blocklen(out) == target_blocklen {
+		if utils.Blocklen(out) == target_blocklen {
 			// fmt.Printf("after adding %d bytes, cipherlen changed from %d to %d blocks\n", extrabytes_attacker, res_blocklen, target_blocklen)
 			random_len_attacker += paddingcnt_attacker - (extrabytes_attacker - 1)
 			break
@@ -1163,13 +620,13 @@ func decryptecb_random(mystery []byte) []byte {
 	// to fill up to N blocks exactly
 	// That will let us be sure the following block contains the <known-block> combined with mystery data for the attack
 	padding_attacker := []byte{}
-	for i := 0; i < blocksize_bytes - (random_len_attacker % blocksize_bytes); i += 1 {
+	for i := 0; i < aes.Blocksize_bytes - (random_len_attacker % aes.Blocksize_bytes); i += 1 {
 		padding_attacker = append(padding_attacker, byte(0))
 	}
 
 	// Conceptually, the target_block is the one _after_ the last one with random data and its padding
 	// That would be the random len in blocks, + 1. But then subtract 1 since blocks are 0-indexed
-	target_blockidx := random_len_attacker / blocksize_bytes
+	target_blockidx := random_len_attacker / aes.Blocksize_bytes
 
 	// If the random data bleeds beyond a "full" block, use the one after the block with partially random data
 	if len(padding_attacker) > 0 {
@@ -1178,17 +635,17 @@ func decryptecb_random(mystery []byte) []byte {
 	// fmt.Printf("calls to oracle prefixed with %d bytes of padding; target block is %d\n", len(padding_attacker), target_blockidx)
 
 	// Repeat attack as last time
-	foundblocks := []word{[]byte{}}
+	foundblocks := []aes.Word{[]byte{}}
 	blockidx := 0
-	mysterylen_blocks := blocklen(mystery)
-	for i := 0; i < (blocksize_bytes * mysterylen_blocks); i += blocksize_bytes {
+	mysterylen_blocks := utils.Blocklen(mystery)
+	for i := 0; i < (aes.Blocksize_bytes * mysterylen_blocks); i += aes.Blocksize_bytes {
 
 		// If the last block isn't full, just take what's there
 		var mysteryblock []byte
-		if len(mystery) - i < blocksize_bytes {
+		if len(mystery) - i < aes.Blocksize_bytes {
 			mysteryblock = mystery[i:]
 		} else {
-			mysteryblock = mystery[i : i + blocksize_bytes]
+			mysteryblock = mystery[i : i + aes.Blocksize_bytes]
 		}
 
 		for k := 0; k < len(mysteryblock); k += 1 {
@@ -1199,14 +656,14 @@ func decryptecb_random(mystery []byte) []byte {
 				end -= 1
 			}
 			input := append(padding_attacker, knownblock[0 : end]...)
-			s := blocksize_bytes * target_blockidx
-			result := oracle(input, blockidx)[s:s + blocksize_bytes]
+			s := aes.Blocksize_bytes * target_blockidx
+			result := oracle(input, blockidx)[s:s + aes.Blocksize_bytes]
 
 			for j := 0; j < 255; j += 1 {
 				guesspayload := append(append(input, foundblocks[blockidx]...), byte(j))
 				// fmt.Printf("guessing byte %d (%c) as last byte in payload: %s\n", j, j, string(guesspayload))
 
-				r := oracle(guesspayload, blockidx)[s:s + blocksize_bytes]
+				r := oracle(guesspayload, blockidx)[s:s + aes.Blocksize_bytes]
 				if slices.Equal(r, result) {
 					// fmt.Printf("%dth byte of block %d of %d is: %d (%c)\n", k, blockidx, mysterylen_blocks, j, byte(j))
 					foundblocks[blockidx] = append(foundblocks[blockidx], byte(j))
@@ -1216,35 +673,22 @@ func decryptecb_random(mystery []byte) []byte {
 		}
 
 		// Last block may not be a full block, and that's OK
-		// Every other block should have blocksize_bytes at this point
-		if len(foundblocks[blockidx]) < blocksize_bytes && blockidx < mysterylen_blocks - 1 {
+		// Every other block should have aes.Blocksize_bytes at this point
+		if len(foundblocks[blockidx]) < aes.Blocksize_bytes && blockidx < mysterylen_blocks - 1 {
 			panic(fmt.Sprintf("16 bytes of mystery data should have been found, got %d => %v\n", len(foundblocks[blockidx]), foundblocks[blockidx]))
 		}
 		blockidx += 1
-		foundblocks = append(foundblocks, word{})
+		foundblocks = append(foundblocks, aes.Word{})
 	}
 
-	final := wordstobytes(foundblocks)
+	final := aes.Wordstobytes(foundblocks)
 	fmt.Printf("mystery value: %s\n", final)
 	return final
 }
 
-func validatepkcs7padding(data []byte) ([]byte, error) {
-	count := int(data[len(data) - 1])
-	if count == 0 {
-		return nil, fmt.Errorf("error: last byte has value %d which is invalid padding\n", count)
-	}
-	for i, j := 0, len(data) - 1; i < count; i, j = i + 1, j - 1 {
-		if data[j] != byte(count) {
-			return nil, fmt.Errorf("error: byte %d has value %v, not %d as expected\n", j, data[j], count)
-		}
-	}
-	return data[0:len(data) - count], nil
-}
-
 func cbc_bitflip() bool {
-	a := AES{debug: false}
-	key, iv := randomAESkey(), randomAESkey()
+	a := aes.AES{}
+	key, iv := aes.RandomAESkey(), aes.RandomAESkey()
 	to_prepend := "comment1=cooking%20MCs;userdata="
 	to_append := ";comment2=%20like%20a%20pound%20of%20bacon"
 	oracle := func(input string) []byte {
@@ -1259,15 +703,15 @@ func cbc_bitflip() bool {
 		}
 		plainbytes := append([]byte(to_prepend), escaped_bytes...)
 		plainbytes = append(plainbytes, []byte(to_append)...)
-		// fmt.Printf("blocklen: %s: %d => %d\n", string(plainbytes), len(plainbytes), blocklen(plainbytes))
-		plainbytes_padded := pkcs7pad_bytes(plainbytes, blocklen(plainbytes) * blocksize_bytes)
+		// fmt.Printf("blocklen: %s: %d => %d\n", string(plainbytes), len(plainbytes), utils.Blocklen(plainbytes))
+		plainbytes_padded := utils.Pkcs7pad_bytes(plainbytes, utils.Blocklen(plainbytes) * aes.Blocksize_bytes)
 
 		return a.Encrypt_CBC(plainbytes_padded, key, iv)
 	}
 	check := func(cipherbytes []byte) bool {
 		res := a.Decrypt_CBC(cipherbytes, key, iv)
 		fmt.Printf("cbc_bitflip check decrypted result: %s\n%v\n", res, res)
-		pairs := parse_kv(res, 0x3d, 0x3b, 0x22)
+		pairs := utils.Parse_kv(res, 0x3d, 0x3b, 0x22)
 		fmt.Printf("cbc_bitflip: parsed k/v pairs: \n%v\n", pairs)
 
 		p, ok := pairs["admin"]
@@ -1291,19 +735,19 @@ func cbc_bitflip() bool {
 	att_cipherbytes := oracle("") 
 	// fmt.Printf("cbc_bitflip: attacker is given ciphertext:\n%v\n", att_cipherbytes)
 	preceding_blocks := 1
-	att_second_cipherblock := att_cipherbytes[blocksize_bytes * preceding_blocks:blocksize_bytes * (preceding_blocks + 1)]
-	att_third_cipherblock := att_cipherbytes[blocksize_bytes * (preceding_blocks + 1):]
+	att_second_cipherblock := att_cipherbytes[aes.Blocksize_bytes * preceding_blocks:aes.Blocksize_bytes * (preceding_blocks + 1)]
+	att_third_cipherblock := att_cipherbytes[aes.Blocksize_bytes * (preceding_blocks + 1):]
 
 	// => ECB_Decrypt(Z) = X xor Y
 	// XOR the last block of plaintext with the preceding ciphertext block
 	// This yields the input to the EBC_Encrypt func, aka what ECB_Decrypt would give
-	att_lhs := fixedxor([]byte(to_append)[0:blocksize_bytes], att_second_cipherblock)
+	att_lhs := utils.Fixedxor([]byte(to_append)[0:aes.Blocksize_bytes], att_second_cipherblock)
 	// fmt.Printf("cbc_bitflip: ECB decrypt result of %v\n%v\n\n", att_second_cipherblock, att_lhs)
 
 	// (X xor Y) xor A => bits to flip => Y'
 	// XOR the above with the desired string to give the bytes needed to replace the preceding cipherbytes block
 	// XOR will set the bits whenever a bit needs to be flipped to yield our desired string, exactly what we want
-	att_modified_second_cipherblock := fixedxor(att_lhs, pkcs7pad_bytes([]byte(att_goal), blocksize_bytes))
+	att_modified_second_cipherblock := utils.Fixedxor(att_lhs, utils.Pkcs7pad_bytes([]byte(att_goal), aes.Blocksize_bytes))
 	// fmt.Printf("cbc_bitflip: modified second block: %v\n\n", att_modified_second_cipherblock)
 
 	// Put the modified cipherblock together with the untouched third cipherblock
@@ -1312,39 +756,30 @@ func cbc_bitflip() bool {
 	return check(append(att_modified_second_cipherblock, att_third_cipherblock...))
 }
 
-func nth_block(bytes []byte, n int) []byte {
-	// For CTR mode, input isn't padded to multiple of blocklen
-	// If insufficient data left for a whole block, return what's there
-	if blocksize_bytes * (n + 1) > len(bytes) {
-		return bytes[blocksize_bytes * n:]
-	}
-	return bytes[blocksize_bytes * n : blocksize_bytes * (n + 1)]
-}
-
 func cbc_padding_oracle(plaintext string) (string, error) {
-	key, iv := randomAESkey(), randomAESkey()
+	key, iv := aes.RandomAESkey(), aes.RandomAESkey()
 	first := func() (cipherbytes, used_iv []byte) {
-		a := AES{debug: false}
-		pad_len := blocklen([]byte(plaintext)) * blocksize_bytes
-		padded := pkcs7pad_bytes([]byte(plaintext),  pad_len)
+		a := aes.AES{}
+		pad_len := utils.Blocklen([]byte(plaintext)) * aes.Blocksize_bytes
+		padded := utils.Pkcs7pad_bytes([]byte(plaintext),  pad_len)
 
 		// Add extra padding as explained in https://en.wikipedia.org/wiki/Padding_(cryptography)#PKCS#5_and_PKCS#7
 		// This resolves ambiguity about how to interpret last byte
-		if len(plaintext) % blocksize_bytes == 0 {
-			padded = pkcs7pad_bytes([]byte(plaintext),  len(plaintext) + blocksize_bytes)
+		if len(plaintext) % aes.Blocksize_bytes == 0 {
+			padded = utils.Pkcs7pad_bytes([]byte(plaintext),  len(plaintext) + aes.Blocksize_bytes)
 		}
 
 		return a.Encrypt_CBC(padded, key, iv), iv
 	}
-	second := func(a *AES, cipherbytes []byte) bool {
-		_, e := validatepkcs7padding(a.Decrypt_CBC(cipherbytes, key, iv))
+	second := func(a *aes.AES, cipherbytes []byte) bool {
+		_, e := utils.Validatepkcs7padding(a.Decrypt_CBC(cipherbytes, key, iv))
 		return e == nil
 	}
 
 	// Attack starts here
 	// See README for overall explanation
 	att_cipherbytes, att_iv := first()
-	att_blocklen := blocklen(att_cipherbytes)
+	att_blocklen := utils.Blocklen(att_cipherbytes)
 	att_full_plainbytes := []byte{}
 
 	type att_block_result struct {
@@ -1355,26 +790,26 @@ func cbc_padding_oracle(plaintext string) (string, error) {
 	att_all_blocks := map[int][]byte{}
 	for att_target_block := att_blocklen - 1; att_target_block >= 0; att_target_block -= 1 {
 		go func(att_target_block int) {
-			a := AES{}
+			a := aes.AES{}
 			var original_firstblock []byte
 			if att_target_block == 0 {
 				original_firstblock = att_iv
 			} else {
-				original_firstblock = nth_block(att_cipherbytes, att_target_block - 1)
+				original_firstblock = utils.Nth_block(att_cipherbytes, att_target_block - 1)
 			}
-			secondblock := nth_block(att_cipherbytes, att_target_block)
+			secondblock := utils.Nth_block(att_cipherbytes, att_target_block)
 			// fmt.Printf("target block: %d, cipherblocks: %v\n%v\n", att_target_block, original_firstblock, secondblock)
 
 			att_plainbytes := []byte{}
-			for i := blocksize_bytes - 1; i >= 0; i -= 1 {
-				att_goal_padding := blocksize_bytes - i
+			for i := aes.Blocksize_bytes - 1; i >= 0; i -= 1 {
+				att_goal_padding := aes.Blocksize_bytes - i
 				// fmt.Printf("att goal is to make oracle pass with padding: %d\n", att_goal_padding)
 				firstblock := slices.Clone(original_firstblock)
 				// fmt.Printf("firstblock before modify: %v\n", firstblock)
 
 				// Use CBC bitflip to ensure the known plainbytes decrypt to the goal_padding (P')
-				for k, j := len(att_plainbytes) - 1, i + 1; j < blocksize_bytes; k, j = k - 1, j + 1{
-					firstblock[j] = xorbytes(byte(att_goal_padding), xorbytes(att_plainbytes[k], original_firstblock[j]))
+				for k, j := len(att_plainbytes) - 1, i + 1; j < aes.Blocksize_bytes; k, j = k - 1, j + 1{
+					firstblock[j] = utils.Xorbytes(byte(att_goal_padding), utils.Xorbytes(att_plainbytes[k], original_firstblock[j]))
 				}
 				// fmt.Printf("firstblock after modify: %v\n", firstblock)
 
@@ -1412,7 +847,7 @@ func cbc_padding_oracle(plaintext string) (string, error) {
 						}
 					}
 					// fmt.Printf("using byte value %d (compared to %d) causes oracle to pass\n", opt, original_firstblock[i])
-					att_result := xorbytes(xorbytes(byte(att_goal_padding), opt), original_firstblock[i])
+					att_result := utils.Xorbytes(utils.Xorbytes(byte(att_goal_padding), opt), original_firstblock[i])
 					// fmt.Printf("target_block: %d plaintext at pos %d: %d (%c)\n", att_target_block, i, att_result, att_result)
 					att_plainbytes = append(att_plainbytes, att_result)
 				} else {
@@ -1434,8 +869,8 @@ func cbc_padding_oracle(plaintext string) (string, error) {
 		att_full_plainbytes = append(att_full_plainbytes, att_all_blocks[i]...)
 	}
 
-	att_string, err := validatepkcs7padding(att_full_plainbytes)
-	fmt.Printf("att plaintext: %v\n%s\n%s\n", att_full_plainbytes, att_string, base64decode(string(att_string)))
+	att_string, err := utils.Validatepkcs7padding(att_full_plainbytes)
+	fmt.Printf("att plaintext: %v\n%s\n%s\n", att_full_plainbytes, att_string, utils.Base64decode(string(att_string)))
 	return string(att_string), err
 }
 
@@ -1482,16 +917,16 @@ func ctr_fixed_nonce(shortest bool) ([]byte, []byte) {
 	// 	"VHJhbnNmb3JtZWQgdXR0ZXJseTo=",
 	// 	"QSB0ZXJyaWJsZSBiZWF1dHkgaXMgYm9ybi4=",
 	// }
-	sc := read("3_20.txt")
+	sc := utils.Read("3_20.txt")
 	plaintexts := []string{}
 	for sc.Scan() {
 		plaintexts = append(plaintexts, sc.Text())
 	}
 
-	key := randomAESkey()
-	a := AES{}
+	key := aes.RandomAESkey()
+	a := aes.AES{}
 	ctr_encrypt := func(input string) (cipherbytes []byte, keystream []byte, e error) {
-		return a.process_ctr(base64decode(input), key, int_to_bytes(uint64(0)), 0)
+		return a.Process_CTR(utils.Base64decode(input), key, utils.Int_to_bytes(uint64(0)), 0)
 	}
 
 	ciphertexts := make([][]byte, len(plaintexts))
@@ -1572,7 +1007,7 @@ func ctr_fixed_nonce(shortest bool) ([]byte, []byte) {
 			// fmt.Printf("testing keystream byte %v for pos %d\n", keystream_byte, goal_pos)
 			for k, ciphertext := range ciphertexts {
 				if goal_pos < len(ciphertext) {
-					next_plainbyte := xorbytes(keystream_byte, ciphertext[goal_pos])
+					next_plainbyte := utils.Xorbytes(keystream_byte, ciphertext[goal_pos])
 					s := []byte{next_plainbyte}
 					plaintext_to_rank = append(plaintext_to_rank, next_plainbyte)
 					if accept_regexp.Find(s) == nil	{
@@ -1620,7 +1055,7 @@ func ctr_fixed_nonce(shortest bool) ([]byte, []byte) {
 			// }
 			for k, ciphertext := range ciphertexts {
 				if goal_pos < len(ciphertext) {
-					att_plaintexts[k] = append(att_plaintexts[k], xorbytes(best_keystream_byte, ciphertext[goal_pos]))
+					att_plaintexts[k] = append(att_plaintexts[k], utils.Xorbytes(best_keystream_byte, ciphertext[goal_pos]))
 				}
 			}
 			att_keystream = append(att_keystream, best_keystream_byte)
@@ -1640,20 +1075,20 @@ func mt_seed_crack() (int, int) {
 	lower, upper := 40, 1000
 	rnd, _ := time.ParseDuration(fmt.Sprintf("%ds", rand.Intn(upper - lower + 1) + lower))
 	seed := int(t.Add(rnd).Unix())
-	m := MTrng{}
-	m.mt_init(seed)
+	m := rng.MTrng{}
+	m.Init(seed)
 
-	att_rng_out := m.mt_gen()
+	att_rng_out := m.Gen()
 	att_seed_lower, att_seed_upper := -1000, 1000
 	att_t := time.Now()
 	fmt.Printf("attacker RNG: %d, generated from seed: %d\n", att_rng_out, seed)
 
 	var att_seed int
 	for i := att_seed_lower; i <= att_seed_upper; i += 1 {
-		m2 := MTrng{}
+		m2 := rng.MTrng{}
 		offset, _ := time.ParseDuration(fmt.Sprintf("%ds", i))
-		m2.mt_init(int(att_t.Add(offset).Unix()))
-		if m2.mt_gen() == att_rng_out {
+		m2.Init(int(att_t.Add(offset).Unix()))
+		if m2.Gen() == att_rng_out {
 			att_seed = int(att_t.Unix()) + i
 			break
 		}
@@ -1667,56 +1102,56 @@ func mt_seed_crack() (int, int) {
 	return seed, att_seed
 }
 
-func mt_clone() (MTrng, MTrng) {
+func mt_clone() (rng.MTrng, rng.MTrng) {
 	reverse_temper := func(n, len, shift, mask int, dir bool) int {
-		nbits := bits(n, len)
-		a := bits(0, len)
-		maskbits := bits(mask, len)
+		nbits := utils.Bits(n, len)
+		a := utils.Bits(0, len)
+		maskbits := utils.Bits(mask, len)
 
 		if dir {
 			// B bits [0, shift) are 0 AND corresponding bit of the mask
 			// First bit of A is corresponding bit of B xor first bit of n
 			for i := 0; i < shift; i += 1 {
-				a[i] = xorbytes(0, nbits[i])
+				a[i] = utils.Xorbytes(0, nbits[i])
 			}
 			// b[i] = a[i - shift] which in turn yields a[i]
 			for i := shift; i < len; i += 1 {
-				a[i] = xorbytes(a[i - shift] & maskbits[i], nbits[i])
+				a[i] = utils.Xorbytes(a[i - shift] & maskbits[i], nbits[i])
 			}
 		} else {
 			// B bits [len - 1, shift) are 0 AND mask
 			// Last bit of A is corresponding bit of B xor last bit of n 
 			for i := len - 1; i > len - 1 - shift; i -= 1 {
-				a[i] = xorbytes(0, nbits[i])
+				a[i] = utils.Xorbytes(0, nbits[i])
 			}
 			// b[i] = a[i - shift] which in turn yields a[i]
 			for i := len - 1 - shift; i >= 0; i = i - 1 {
-				a[i] = xorbytes(a[i + shift] & maskbits[i], nbits[i])
+				a[i] = utils.Xorbytes(a[i + shift] & maskbits[i], nbits[i])
 			}
 		}
-		r := bitval(a)
+		r := utils.Bitval(a)
 		return r
 	}
 	reverse_all_temper := func(n int) int {
-		n = reverse_temper(n, mt_w, mt_l, bit_32, true)
-		n = reverse_temper(n, mt_w, mt_t, mt_c, false)
-		n = reverse_temper(n, mt_w, mt_s, mt_b, false)
-		return reverse_temper(n, mt_w, mt_u, mt_d, true)
+		n = reverse_temper(n, rng.Mt_w, rng.Mt_l, utils.Bit_32, true)
+		n = reverse_temper(n, rng.Mt_w, rng.Mt_t, rng.Mt_c, false)
+		n = reverse_temper(n, rng.Mt_w, rng.Mt_s, rng.Mt_b, false)
+		return reverse_temper(n, rng.Mt_w, rng.Mt_u, rng.Mt_d, true)
 	}
 
-	m := MTrng{}
-	m.mt_init(1)
+	m := rng.MTrng{}
+	m.Init(1)
 	att_state := make([]int, 624)
 	for i := 0; i < 624; i += 1 {
-		att_state[i] = reverse_all_temper(m.mt_gen())
+		att_state[i] = reverse_all_temper(m.Gen())
 	}
 
 	// After 624 RNG outputs, state array is completely full of those untempered RNG outputs
 	// They are used for all future generation
 	// So w/o knowing seed, the RNG can be cloned and predicted
-	att_m := MTrng{}
-	att_m.state = att_state
-	att_m.idx = 0
+	att_m := rng.MTrng{}
+	att_m.State = att_state
+	att_m.Idx = 0
 	return m, att_m
 }
 
@@ -1731,9 +1166,9 @@ func mt_stream_break() (int, int) {
 		}
 
 		seed := rand.Intn(0xFFFF)
-		m := MTrng{}
+		m := rng.MTrng{}
 		fmt.Printf("using seed: %d and plaintext: %s\n", seed, plain)
-		return m.process_mt_crypt(seed, plain), seed
+		return m.Process_MT_crypt(seed, plain), seed
 	}
 
 	cipherbytes, true_seed := encrypt()
@@ -1762,7 +1197,7 @@ func mt_stream_break() (int, int) {
 			att_rng = 0
 			bytes_recovered = 0
 		}
-		recovered_keybyte := int(xorbytes(cipherbytes[i], known[k]))
+		recovered_keybyte := int(utils.Xorbytes(cipherbytes[i], known[k]))
 		// fmt.Printf("recovered keybyte: %d\n", recovered_keybyte)
 		att_rng |=  recovered_keybyte << (8 * bytes_recovered)
 		bytes_recovered += 1
@@ -1807,11 +1242,11 @@ func mt_stream_break() (int, int) {
 				return
 			default:
 			}
-			m := MTrng{}
-			m.mt_init(i)
+			m := rng.MTrng{}
+			m.Init(i)
 			var r int
 			for j := 0; j <= earliest_rng_idx; j += 1 {
-				r = m.mt_gen()
+				r = m.Gen()
 			}
 			if r == att_rngs[len(att_rngs) - 1] {
 				rCh <- i
@@ -1822,11 +1257,11 @@ func mt_stream_break() (int, int) {
 	<- doneCh
 
 	// for i := 0; i < max_seed; i += 1 {
-	// 	m := MTrng{}
-	// 	m.mt_init(i)
+	// 	m := rng.MTrng{}
+	// 	m.Init(i)
 	// 	var r int
 	// 	for j := 0; j <= earliest_rng_idx; j += 1 {
-	// 		r = m.mt_gen()
+	// 		r = m.Gen()
 	// 	}
 	// 	if r == att_rngs[len(att_rngs) - 1] {
 	// 		att_seed = i
@@ -1839,38 +1274,38 @@ func mt_stream_break() (int, int) {
 }
 
 func break_ctr_seek_edit() ([]byte, []byte) {
-	ecb_cipherbytes := decodebase64_file("./1_7.txt")
-	a := AES{}
+	ecb_cipherbytes := utils.Decodebase64_file("./1_7.txt")
+	a := aes.AES{}
 	plainbytes := a.Decrypt_ECB(ecb_cipherbytes, []byte("YELLOW SUBMARINE"))
 
-	key, nonce := randomAESkey(), randomAESkey()[0:8]
-	cipherbytes, _, err := a.process_ctr(plainbytes, key, nonce, 0)
+	key, nonce := aes.RandomAESkey(), aes.RandomAESkey()[0:8]
+	cipherbytes, _, err := a.Process_CTR(plainbytes, key, nonce, 0)
 	if err != nil {
 		fmt.Printf("error with CTR encrypt on attack setup: %s\n", err)
 	}
 
 	attacker_oracle := func(offset int, new_plainbytes []byte) ([]byte, error) {
-		return a.ctr_seek_edit(slices.Clone(cipherbytes), key, nonce, offset, new_plainbytes)
+		return a.CTR_seek_edit(slices.Clone(cipherbytes), key, nonce, offset, new_plainbytes)
 	}
 
 	// All 0s would work, but this is to show the attack works despite choice of substituted plaintext
 	att_newplainbytes := make([]byte, len(cipherbytes))
 	for k, _ := range att_newplainbytes {
-		att_newplainbytes[k] = randombyte(0, 255)
+		att_newplainbytes[k] = utils.Randombyte(0, 255)
 	}
 	att_modified_cipherbytes, err := attacker_oracle(0, att_newplainbytes)
 	if err != nil {
 		fmt.Printf("error with CTR seek edit in attack: %s\n", err)
 	}
-	att_recovered_keystream := fixedxor(att_modified_cipherbytes, att_newplainbytes)
-	att_recovered_plainbytes := fixedxor(cipherbytes, att_recovered_keystream)
+	att_recovered_keystream := utils.Fixedxor(att_modified_cipherbytes, att_newplainbytes)
+	att_recovered_plainbytes := utils.Fixedxor(cipherbytes, att_recovered_keystream)
 	fmt.Printf("recovered plainbytes: %s\n", att_recovered_plainbytes)
 	return plainbytes, att_recovered_plainbytes
 }
 
 func ctr_bitflip() bool {
-	a := AES{debug: false}
-	key, nonce := randomAESkey(), randomAESkey()[0:8]
+	a := aes.AES{}
+	key, nonce := aes.RandomAESkey(), aes.RandomAESkey()[0:8]
 	to_prepend := "comment1=cooking%20MCs;userdata="
 	to_append := ";comment2=%20like%20a%20pound%20of%20bacon"
 	oracle := func(input string) []byte {
@@ -1887,16 +1322,16 @@ func ctr_bitflip() bool {
 		plainbytes = append(plainbytes, []byte(to_append)...)
 		fmt.Printf("encrypting: %s\n", plainbytes)
 
-		r, _, err := a.process_ctr(plainbytes, key, nonce, 0)
+		r, _, err := a.Process_CTR(plainbytes, key, nonce, 0)
 		if err != nil {
 			fmt.Printf("err CTR encrypting: %s\n", err)
 		}
 		return r
 	}
 	check := func(cipherbytes []byte) bool {
-		res, _, _ := a.process_ctr(cipherbytes, key, nonce, 0)
+		res, _, _ := a.Process_CTR(cipherbytes, key, nonce, 0)
 		fmt.Printf("ctr_bitflip check decrypted result: %s\n%v\n", res, res)
-		pairs := parse_kv(res, 0x3d, 0x3b, 0x22)
+		pairs := utils.Parse_kv(res, 0x3d, 0x3b, 0x22)
 		fmt.Printf("ctr_bitflip: parsed k/v pairs: \n%v\n", pairs)
 
 		p, ok := pairs["admin"]
@@ -1910,27 +1345,18 @@ func ctr_bitflip() bool {
 	att_plaintext = append(att_plaintext, to_append...)
 
 	att_ciphertext := oracle(att_input)
-	att_keystream := fixedxor(att_ciphertext, att_plaintext)
+	att_keystream := utils.Fixedxor(att_ciphertext, att_plaintext)
 
-	att_ciphertext[len(to_prepend)] = xorbytes(0x3b, att_keystream[len(to_prepend)])
+	att_ciphertext[len(to_prepend)] = utils.Xorbytes(0x3b, att_keystream[len(to_prepend)])
 	idx := len(to_prepend) + len("+admin")
-	att_ciphertext[idx] = xorbytes(0x3d, att_keystream[idx])
+	att_ciphertext[idx] = utils.Xorbytes(0x3d, att_keystream[idx])
 
 	return check(att_ciphertext)
 }
 
-func check_ascii(in []byte) (int, error) {
-	for k, v := range in {
-		if v > 127 {
-			return k, fmt.Errorf("invalid ASCII byte: %d at %d", v, k)
-		}
-	}
-	return -1, nil
-}
-
 func cbc_key_as_iv() ([]byte, []byte) {
-	a := AES{debug: false}
-	key := randomAESkey()
+	a := aes.AES{}
+	key := aes.RandomAESkey()
 	iv := key
 	to_prepend := "comment1=cooking%20MCs;userdata="
 	to_append := ";comment2=%20like%20a%20pound%20of%20bacon"
@@ -1946,14 +1372,14 @@ func cbc_key_as_iv() ([]byte, []byte) {
 		}
 		plainbytes := append([]byte(to_prepend), escaped_bytes...)
 		plainbytes = append(plainbytes, []byte(to_append)...)
-		plainbytes_padded := pkcs7pad_bytes(plainbytes, blocklen(plainbytes) * blocksize_bytes)
+		plainbytes_padded := utils.Pkcs7pad_bytes(plainbytes, utils.Blocklen(plainbytes) * aes.Blocksize_bytes)
 
 		return a.Encrypt_CBC(plainbytes_padded, key, iv)
 	}
 	check := func(cipherbytes []byte) ([]byte, error) {
 		res := a.Decrypt_CBC(cipherbytes, key, iv)
 		fmt.Printf("cbc_bitflip check decrypted result: %s\n%v\n", res, res)
-		if _, e := check_ascii(res); e != nil {
+		if _, e := utils.Check_ascii(res); e != nil {
 			return res, e
 		}
 		return res, nil
@@ -1973,12 +1399,12 @@ func cbc_key_as_iv() ([]byte, []byte) {
 	att_plainbytes = append(att_plainbytes, p...)
 	att_cipher := oracle(att_plainbytes)
 
-	first := nth_block(att_cipher, 0)
-	att_new_cipher := append(slices.Clone(first), make([]byte, blocksize_bytes)...)
+	first := utils.Nth_block(att_cipher, 0)
+	att_new_cipher := append(slices.Clone(first), make([]byte, aes.Blocksize_bytes)...)
 	att_new_cipher = append(att_new_cipher, first...)
 
 	att_plain, err := check(att_new_cipher)
 	fmt.Printf("output: %v (%d)\nerr: %v\n", att_plain, len(att_plain), err)
-	att_key := fixedxor(nth_block(att_plain, 0), nth_block(att_plain, 2))
+	att_key := utils.Fixedxor(utils.Nth_block(att_plain, 0), utils.Nth_block(att_plain, 2))
 	return key, att_key
 }

@@ -1,4 +1,4 @@
-package main
+package aes
 
 import (
 	t "testing"
@@ -6,23 +6,24 @@ import (
 	"os"
 	"fmt"
 	"os/exec"
+	"jkayani.local/mycrypto/utils"
 )
 
 func setupaes() (*AES) {
 	return &AES{
-		key: hexdecode("00000000000000000000000000000000"),
-		cipherbytes: bytestowords([]byte("048C159D26AE37BF")),
+		key: utils.Hexdecode("00000000000000000000000000000000"),
+		cipherbytes: Bytestowords([]byte("048C159D26AE37BF")),
 	}
 }
 
-func nestedSliceEquals(s1, s2 []word) bool {
-	return slices.EqualFunc(s1, s2, func (w1, w2 word) bool {
+func nestedSliceEquals(s1, s2 []Word) bool {
+	return slices.EqualFunc(s1, s2, func (w1, w2 Word) bool {
 		return slices.Equal(w1, w2)
 	})
 }
 
 func writehex(hex, outfile string) {
-	data := hexdecode(hex)
+	data := utils.Hexdecode(hex)
 	f, _ := os.Create(outfile)
 	f.Write(data)
 	f.Close()
@@ -111,8 +112,8 @@ func TestMultiply(tt *t.T) {
 	}
 
 	// https://en.wikipedia.org/wiki/Rijndael_MixColumns#Test_vectors_for_MixColumn()
-	inputsforward := word{0xdb, 0x13, 0x53, 0x45}
-	inputsreverse := word{0x8e, 0x4d, 0xa1, 0xbc}
+	inputsforward := Word{0xdb, 0x13, 0x53, 0x45}
+	inputsreverse := Word{0x8e, 0x4d, 0xa1, 0xbc}
 
 	if out := matrixmul(inputsforward, mix); !slices.Equal(out, inputsreverse) {
 		tt.Fatalf("expected %v for forward mixing of input vector %v, got %v\n", inputsreverse, inputsforward, out)
@@ -125,22 +126,22 @@ func TestMultiply(tt *t.T) {
 func TestAESRoundKey(tt *t.T) {
 	a := setupaes()
 
-	// https://github.com/fanosta/aeskeyschedule?tab=readme-ov-file#example-usage
+	// https://github.com/fanosta/aeskeyschedule?tab=utils.Readme-ov-file#example-usage
 	expectedroundkeys := [][]byte {
-		hexdecode("00000000000000000000000000000000"),
-		hexdecode("62636363626363636263636362636363"),
-		hexdecode("9b9898c9f9fbfbaa9b9898c9f9fbfbaa"),
-		hexdecode("90973450696ccffaf2f457330b0fac99"),
-		hexdecode("ee06da7b876a1581759e42b27e91ee2b"),
-		hexdecode("7f2e2b88f8443e098dda7cbbf34b9290"),
-		hexdecode("ec614b851425758c99ff09376ab49ba7"),
-		hexdecode("217517873550620bacaf6b3cc61bf09b"),
-		hexdecode("0ef903333ba9613897060a04511dfa9f"),
-		hexdecode("b1d4d8e28a7db9da1d7bb3de4c664941"),
-		hexdecode("b4ef5bcb3e92e21123e951cf6f8f188e"),
+		utils.Hexdecode("00000000000000000000000000000000"),
+		utils.Hexdecode("62636363626363636263636362636363"),
+		utils.Hexdecode("9b9898c9f9fbfbaa9b9898c9f9fbfbaa"),
+		utils.Hexdecode("90973450696ccffaf2f457330b0fac99"),
+		utils.Hexdecode("ee06da7b876a1581759e42b27e91ee2b"),
+		utils.Hexdecode("7f2e2b88f8443e098dda7cbbf34b9290"),
+		utils.Hexdecode("ec614b851425758c99ff09376ab49ba7"),
+		utils.Hexdecode("217517873550620bacaf6b3cc61bf09b"),
+		utils.Hexdecode("0ef903333ba9613897060a04511dfa9f"),
+		utils.Hexdecode("b1d4d8e28a7db9da1d7bb3de4c664941"),
+		utils.Hexdecode("b4ef5bcb3e92e21123e951cf6f8f188e"),
 	}
 	a.makeroundkeys(false)
-	if out := wordstobytes(a.roundkeys[1]); !slices.Equal(out, expectedroundkeys[1]) {
+	if out := Wordstobytes(a.roundkeys[1]); !slices.Equal(out, expectedroundkeys[1]) {
 		tt.Fatalf("expectedroundkeys %v, got %v for makeroundkey of 0s\n", expectedroundkeys[1], out)
 	}
 }
@@ -165,7 +166,7 @@ func TestAESShiftRows(tt *t.T) {
 	a := setupaes()
 
 	a.shiftrows(0, false)
-	expectedshiftrows := transpose([]word{
+	expectedshiftrows := transpose([]Word{
 		[]byte("0123"), []byte("5674"), []byte("AB89"), []byte("FCDE"),
 	})
 	if out := a.cipherbytes[0]; !slices.Equal(out, expectedshiftrows[0]) {
@@ -214,24 +215,24 @@ func TestAESMixColumns(tt *t.T) {
 		0xc6, 0xc6, 0xc6, 0xc6,
 	}
 
-	inputsreverse := hexdecode("8e4da1bc")
-	inputsreverse = append(inputsreverse, hexdecode("9fdc589d")...)
-	inputsreverse = append(inputsreverse, hexdecode("01010101")...)
-	inputsreverse = append(inputsreverse, hexdecode("c6c6c6c6")...)
+	inputsreverse := utils.Hexdecode("8e4da1bc")
+	inputsreverse = append(inputsreverse, utils.Hexdecode("9fdc589d")...)
+	inputsreverse = append(inputsreverse, utils.Hexdecode("01010101")...)
+	inputsreverse = append(inputsreverse, utils.Hexdecode("c6c6c6c6")...)
 
 	a1 := AES{
-		cipherbytes: bytestowords(inputsforward),
+		cipherbytes: Bytestowords(inputsforward),
 	}
 	a1.mixcols(0, false)
-	if out :=	a1.cipherbytes; !nestedSliceEquals(out, bytestowords(inputsreverse)) {
-		tt.Fatalf("expected %v for forward mix columns of %v, got %v\n", bytestowords(inputsreverse), inputsforward, out)
+	if out :=	a1.cipherbytes; !nestedSliceEquals(out, Bytestowords(inputsreverse)) {
+		tt.Fatalf("expected %v for forward mix columns of %v, got %v\n", Bytestowords(inputsreverse), inputsforward, out)
 	}
 
 	a2 := AES{
-		cipherbytes: bytestowords(inputsreverse),
+		cipherbytes: Bytestowords(inputsreverse),
 	}
 	a2.mixcols(0, true)
-	if out :=	a2.cipherbytes; !nestedSliceEquals(out, bytestowords(inputsforward)) {
+	if out :=	a2.cipherbytes; !nestedSliceEquals(out, Bytestowords(inputsforward)) {
 		tt.Fatalf("expected %v for reverse mix columns of %v, got %v\n", inputsforward, inputsreverse, out)
 	}
 }
@@ -239,8 +240,8 @@ func TestAESMixColumns(tt *t.T) {
 func TestTranspose(tt *t.T) {
 	// a := setupaes()
 	// a.makeroundkeys()
-	input := bytestowords([]byte("0123456789ABCDEF"))
-	expected := []word{
+	input := Bytestowords([]byte("0123456789ABCDEF"))
+	expected := []Word{
 		[]byte("048C"), []byte("159D"), []byte("26AE"), []byte("37BF"),
 	}
 	if out := transpose(input); !nestedSliceEquals(out, expected) {
@@ -265,7 +266,7 @@ func TestAESDecrypt_ECB(tt *t.T) {
 	decryptcli := "openssl enc -d -aes-128-ecb -nosalt -K \"%s\" -nopad < ciphertest | hexdump -v -e '/1 \"%%02X\"' | tr '[:upper:]' '[:lower:]'"
 	a := AES{}
 	for input, _ := range cases {
-		out := a.Decrypt_ECB(hexdecode(input.cipherhex), hexdecode(input.keyhex))
+		out := a.Decrypt_ECB(utils.Hexdecode(input.cipherhex), utils.Hexdecode(input.keyhex))
 
 		writehex(input.cipherhex, "ciphertest")
 		cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf(decryptcli, input.keyhex))
@@ -274,8 +275,8 @@ func TestAESDecrypt_ECB(tt *t.T) {
 			fmt.Printf("error: %s: %s\n", err, string(err.(*exec.ExitError).Stderr))
 		}
 
-		if base16encode_bytes(out) != string(expected) {
-			// tt.Fatalf("expected %v (%d)for decryption of %s with key %s, got %v (%d)\n", hexdecode(string(expected)), len(expected), input.cipherhex, input.keyhex, hexdecode(out), len(out))
+		if utils.Base16encode_bytes(out) != string(expected) {
+			// tt.Fatalf("expected %v (%d)for decryption of %s with key %s, got %v (%d)\n", utils.Hexdecode(string(expected)), len(expected), input.cipherhex, input.keyhex, utils.Hexdecode(out), len(out))
 			tt.Fatalf("expected %v (%d)for decryption of %s with key %s, got %v (%d)\n", expected, len(expected), input.cipherhex, input.keyhex, out, len(out))
 		}
 	}
@@ -288,20 +289,20 @@ func TestAESDecrypt_ECB(tt *t.T) {
 	encryptcli := "openssl enc -aes-128-ecb -nosalt -K \"%s\" -nopad < plaintest | hexdump -v -e '/1 \"%%02X\"' | tr '[:upper:]' '[:lower:]'"
 	for _, input := range more {
 		writeascii(input, "plaintest")
-		fmt.Printf("key %s => %s\n", key, base16encode_bytes([]byte(key)))
-		cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf(encryptcli, base16encode_bytes([]byte(key))))
+		fmt.Printf("key %s => %s\n", key, utils.Base16encode_bytes([]byte(key)))
+		cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf(encryptcli, utils.Base16encode_bytes([]byte(key))))
 		cipher, err := cmd.Output()
 		if err != nil {
 			fmt.Printf("error: %s: %s\n", err, string(err.(*exec.ExitError).Stderr))
 		}
 
-		out := a.Decrypt_ECB(hexdecode(string(cipher)), []byte(key))
-		if base16encode_bytes(out) != base16encode_bytes([]byte(input)) {
+		out := a.Decrypt_ECB(utils.Hexdecode(string(cipher)), []byte(key))
+		if utils.Base16encode_bytes(out) != utils.Base16encode_bytes([]byte(input)) {
 			tt.Fatalf("failed to decrypt the encryption of %s - encrypted value %s (hex), decrypted value: %s\n", input, string(cipher), out)
 		}
 	}
 
-	a.DecryptFile_ECB("1_7.txt", "YELLOW SUBMARINE")
+	a.DecryptFile_ECB("../1_7.txt", "YELLOW SUBMARINE")
 
 	// aes-128-ecb CLI invoke:
 	// openssl enc -aes-128-ecb -nosalt -K "10a58869d74be5a374cf867cfb473859" -nopad < plain | hexdump -v -e '/1 "%02X"'
@@ -320,13 +321,13 @@ func TestAESEncrypt_ECB(tt *t.T) {
 	cases := map[i]string {
 		i{"00000000000000000000000000000000", "10a58869d74be5a374cf867cfb473859"}: "6d251e6944b051e04eaa6fb4dbf78465",
 		i{"00000000000000000000000000000000", "caea65cdbb75e9169ecd22ebe6e54675"}: "6e29201190152df4ee058139def610bb",
-		i{base16encode_bytes([]byte("My super secret ")), "10a58869d74be5a374cf867cfb473859"}: "3D1B7BDDF46221E1E462662B56910551" ,
+		i{utils.Base16encode_bytes([]byte("My super secret ")), "10a58869d74be5a374cf867cfb473859"}: "3D1B7BDDF46221E1E462662B56910551" ,
 	}
 
 	encryptcli := "openssl enc -aes-128-ecb -nosalt -K \"%s\" -nopad < plaintest | hexdump -v -e '/1 \"%%02X\"' | tr '[:upper:]' '[:lower:]'"
 	a := AES{}
 	for input, _ := range cases {
-		out := a.Encrypt_ECB(hexdecode(input.cipherhex), hexdecode(input.keyhex))
+		out := a.Encrypt_ECB(utils.Hexdecode(input.cipherhex), utils.Hexdecode(input.keyhex))
 
 		writehex(input.cipherhex, "plaintest")
 		cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf(encryptcli, input.keyhex))
@@ -336,8 +337,8 @@ func TestAESEncrypt_ECB(tt *t.T) {
 		}
 		// fmt.Printf("cmd: %s\nexpected: %s\nactual: %s", fmt.Sprintf(encryptcli, input.keyhex), expected, out)
 
-		if base16encode_bytes(out) != string(expected) {
-			// tt.Fatalf("expected %v (%d)for decryption of %s with key %s, got %v (%d)\n", hexdecode(string(expected)), len(expected), input.cipherhex, input.keyhex, hexdecode(out), len(out))
+		if utils.Base16encode_bytes(out) != string(expected) {
+			// tt.Fatalf("expected %v (%d)for decryption of %s with key %s, got %v (%d)\n", utils.Hexdecode(string(expected)), len(expected), input.cipherhex, input.keyhex, utils.Hexdecode(out), len(out))
 			tt.Fatalf("expected %v (%d) for encryption of %s with key %s, got %v (%d)\n", string(expected), len(expected), input.cipherhex, input.keyhex, out, len(out))
 		}
 	}
@@ -345,20 +346,19 @@ func TestAESEncrypt_ECB(tt *t.T) {
 
 func TestAESDecrypt_CBC(tt *t.T) {
 	a := AES{
-		// debug: true,
 	}
 	key := "YELLOW SUBMARINE"
 	iv := make([]byte, 16)
 
-	out := a.DecryptFile_CBC("2_10.txt", key, iv)
+	out := a.DecryptFile_CBC("../2_10.txt", key, iv)
 
-	input := "cat 2_10.txt | base64 -d"
-	cmdstring := fmt.Sprintf(input + " | " + openssl_iv + " | " + hexdump + " | " + tr, "-d", "-aes-128-cbc", base16encode_bytes([]byte(key)), base16encode_bytes(iv))
+	input := "cat ../2_10.txt | base64 -d"
+	cmdstring := fmt.Sprintf(input + " | " + openssl_iv + " | " + hexdump + " | " + tr, "-d", "-aes-128-cbc", utils.Base16encode_bytes([]byte(key)), utils.Base16encode_bytes(iv))
 	fmt.Println(cmdstring)
 	cmd := exec.Command("/bin/sh", "-c", cmdstring)
 	expected, _ := cmd.Output()
 
-	if string(expected) != base16encode_bytes(out) {
+	if string(expected) != utils.Base16encode_bytes(out) {
 		tt.Fatalf("expected: %s, got %s for AES CBC decrypt of 2_10.txt\n", string(expected), out)
 	}
 }
@@ -371,13 +371,13 @@ func TestAESEncrypt_CBC(tt *t.T) {
 	iv := make([]byte, 16)
 
 	// extract plaintext to encrypt
-	input := "cat 2_10.txt | base64 -d"
-	cmdstring := fmt.Sprintf(input + " | " + openssl_iv, "-d", "-aes-128-cbc", base16encode_bytes([]byte(key)), base16encode_bytes(iv))
+	input := "cat ../2_10.txt | base64 -d"
+	cmdstring := fmt.Sprintf(input + " | " + openssl_iv, "-d", "-aes-128-cbc", utils.Base16encode_bytes([]byte(key)), utils.Base16encode_bytes(iv))
 	cmd := exec.Command("/bin/sh", "-c", cmdstring)
 	plainbytes, _ := cmd.Output()
 
 	out := a.Encrypt_CBC(plainbytes, []byte(key), iv)
-	expected := decodebase64_file("2_10.txt")
+	expected := utils.Decodebase64_file("../2_10.txt")
 
 	if !slices.Equal(expected, out) {
 		tt.Fatalf("expected %v for AES CBC encryption of %s, got %v\n", expected, string(plainbytes), out)
@@ -389,9 +389,9 @@ func TestInt_To_Bytes(tt *t.T) {
 }
 
 func TestProcess_CTR(tt *t.T) {
-	a := AES{debug: false}
-	input := base64decode("L77na/nrFsKvynd6HzOoG7GHTLXsTVu9qvY/2syLXzhPweyyMTJULu/6/kXX0KSvoOLSFQ==")
-	out, keystream, err := a.process_ctr(input, []byte("YELLOW SUBMARINE"), int_to_bytes(0), 0)
+	a := AES{}
+	input := utils.Base64decode("L77na/nrFsKvynd6HzOoG7GHTLXsTVu9qvY/2syLXzhPweyyMTJULu/6/kXX0KSvoOLSFQ==")
+	out, keystream, err := a.Process_CTR(input, []byte("YELLOW SUBMARINE"), int_to_bytes(0), 0)
 	if len(input) != len(out) {
 		tt.Fatalf("incorrect len of ciphertext returned for AES-CTR mode: expected %d, got: %d\n", len(input), len(out))
 	}
@@ -401,7 +401,7 @@ func TestProcess_CTR(tt *t.T) {
 	if err != nil {
 		tt.Fatalf("err on AES-CTR: %s\n", err)
 	}
-	if o := fixedxor(input, keystream); !slices.Equal(out, o) {
+	if o := utils.Fixedxor(input, keystream); !slices.Equal(out, o) {
 		tt.Fatalf("keystream does not decrypt ciphertext for AES-CTR mode: expected: %d, got: %d\n", out, o)
 	}
 	fmt.Printf("%v\n%s\n", out, out)
@@ -411,18 +411,18 @@ func Test_CTR_Seek_Edit(tt *t.T) {
 	og_plain := []byte("hey_its_josh")
 
 	a := AES{}
-	key, nonce := randomAESkey(), randomAESkey()[0:8]
-	og_cipher, _, err := a.process_ctr(og_plain, key, nonce, 0)
+	key, nonce := RandomAESkey(), RandomAESkey()[0:8]
+	og_cipher, _, err := a.Process_CTR(og_plain, key, nonce, 0)
 	if err != nil {
 		tt.Fatalf("AES-CTR: err: %s\n", err)
 	}
-	new_cipher, err := a.ctr_seek_edit(slices.Clone(og_cipher), key, nonce, len("hey_its_"), []byte("john"))
+	new_cipher, err := a.CTR_seek_edit(slices.Clone(og_cipher), key, nonce, len("hey_its_"), []byte("john"))
 	if err != nil {
 		tt.Fatalf("CTR seek edit: AES-CTR: err: %s\n", err)
 	}
 
 	expected := []byte("hey_its_john")
-	actual, _, err := a.process_ctr(new_cipher, key, nonce, 0)
+	actual, _, err := a.Process_CTR(new_cipher, key, nonce, 0)
 	if err != nil {
 		tt.Fatalf("AES-CTR: err: %s\n", err)
 	}

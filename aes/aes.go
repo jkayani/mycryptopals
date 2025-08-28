@@ -1,8 +1,9 @@
-package main
+package aes
 
 import (
 	"fmt"
 	"slices"
+	"jkayani.local/mycrypto/utils"
 )
 
 var (
@@ -65,20 +66,20 @@ var (
 )
 
 const (
-	wordlen_bytes = 4
-	keylen_words = 4
-	blocksize_bytes = 16
-	ROUND_COUNT = 11
+	Wordlen_bytes = 4
+	Keylen_words = 4
+	Blocksize_bytes = 16
+	round_count = 11
 )
 
-type word []byte
+type Word []byte
 
 type AES struct {
 	key []byte
-	iv []word
-	roundkeys [][]word
-	cipherbytes []word
-	debug bool
+	iv []Word
+	roundkeys [][]Word
+	cipherbytes []Word
+	Debug bool
 }
 
 func rotateleft(bytes []byte, shift int) []byte {
@@ -102,7 +103,7 @@ func rotateright(bytes []byte, shift int) []byte {
 }
 
 func sub(b byte, box [][]byte) byte {
-	return box[(b & firstmask(4)) >> 4][b & lastmask(4)]
+	return box[(b & utils.Firstmask(4)) >> 4][b & utils.Lastmask(4)]
 }
 
 // https://en.wikipedia.org/wiki/Finite_field_arithmetic#Rijndael's_(AES)_finite_field
@@ -112,31 +113,31 @@ func multiply(a, b byte) (c byte) {
 			break
 		}
 
-		if b & lastmask(1) > 0 {
-			c = xorbytes(c, a)
+		if b & utils.Lastmask(1) > 0 {
+			c = utils.Xorbytes(c, a)
 		}
 		b >>= 1
-		carry := a & firstmask(1)
+		carry := a & utils.Firstmask(1)
 		a <<= 1
 		if carry > 0 {
-			a = xorbytes(a, 0x1b)
+			a = utils.Xorbytes(a, 0x1b)
 		}
 	}
 	return c
 }
 
-func matrixmul(col word, matrix [][]byte) (w word) {
-	w = make(word, len(col))
+func matrixmul(col Word, matrix [][]byte) (w Word) {
+	w = make(Word, len(col))
 	for k, row := range matrix {
 		for colidx, elm := range row {
 			pairwisexor := multiply(col[colidx], elm)
-			w[k] = xorbytes(w[k], pairwisexor)
+			w[k] = utils.Xorbytes(w[k], pairwisexor)
 		}
 	}
 	return
 }
 
-func wordstobytes(words []word) []byte {
+func Wordstobytes(words []Word) []byte {
 	r := []byte{}
 	for _, w := range words {
 		for _, b := range w {
@@ -146,13 +147,13 @@ func wordstobytes(words []word) []byte {
 	return r
 }
 
-func bytestowords(bytes []byte) []word {
-	words := []word{}
-	w := word{}
+func Bytestowords(bytes []byte) []Word {
+	words := []Word{}
+	w := Word{}
 	for _, nbyte := range bytes {
-		if len(w) == wordlen_bytes {
+		if len(w) == Wordlen_bytes {
 			words = append(words, w)
-			w = word{nbyte}
+			w = Word{nbyte}
 		} else {
 			w = append(w, nbyte)
 		}
@@ -161,10 +162,10 @@ func bytestowords(bytes []byte) []word {
 	return words
 }
 
-func transpose(w []word) []word {
-	new := []word{}
+func transpose(w []Word) []Word {
+	new := []Word{}
 	for colidx, _ := range w[0] {
-		newrow := word{}
+		newrow := Word{}
 		for _, row := range w {
 			newrow = append(newrow, row[colidx])
 		}
@@ -174,32 +175,32 @@ func transpose(w []word) []word {
 }
 
 func (a *AES) debugf(format string, args ...any) {
-	if a.debug {
+	if a.Debug {
 		fmt.Printf(format, args...)
 	}
 }
 
 func (a *AES) makeroundkeys(direction bool) {
 	// First round key will be the 4 words of the original key
-	a.roundkeys = [][]word{bytestowords(a.key)}
+	a.roundkeys = [][]Word{Bytestowords(a.key)}
 
 	// Subsequent round keys will depend on previous round key
-	wnum := keylen_words
-	roundkey := []word{}
+	wnum := Keylen_words
+	roundkey := []Word{}
 	round := 1
-	for round < ROUND_COUNT {
-		if len(roundkey) == keylen_words {
+	for round < round_count {
+		if len(roundkey) == Keylen_words {
 			a.roundkeys = append(a.roundkeys, roundkey)
 			// a.debugf("expandroundkey: generated round key: %v for round %d\n", roundkey, round)
-			roundkey = []word{}
+			roundkey = []Word{}
 			round += 1
 		} else {
 			prevround := a.roundkeys[round - 1]
-			fourbefore := slices.Clone(prevround[wnum % keylen_words])
+			fourbefore := slices.Clone(prevround[wnum % Keylen_words])
 
 			// Previous word may come from previous round key 
 			// if the current round key has 0 words generated so far
-			var prevword word	
+			var prevword Word	
 			if len(roundkey) == 0 {
 				prevword = slices.Clone(prevround[len(prevround) - 1])
 			} else {
@@ -208,16 +209,16 @@ func (a *AES) makeroundkeys(direction bool) {
 
 			// 3 possible branches in piece-wise: https://en.wikipedia.org/wiki/AES_key_schedule#The_key_schedule
 			// Our input key is always 4 words so N > 6, wnum % 6 == 4 branch is ignored
-			if wnum % keylen_words == 0 {
+			if wnum % Keylen_words == 0 {
 				middle := rotateleft(prevword, 1)
 				for k, b := range middle {
 					middle[k] = sub(b, sbox)
 				}
-				nextword := fixedxor(fourbefore, middle)
-				nextword = fixedxor(nextword, []byte{constants[wnum / keylen_words - 1], 0, 0, 0})
+				nextword := utils.Fixedxor(fourbefore, middle)
+				nextword = utils.Fixedxor(nextword, []byte{constants[wnum / Keylen_words - 1], 0, 0, 0})
 				roundkey = append(roundkey, nextword)
 			} else {
-				nextword := fixedxor(fourbefore, prevword)
+				nextword := utils.Fixedxor(fourbefore, prevword)
 				roundkey = append(roundkey, nextword)
 			}
 			wnum += 1
@@ -232,7 +233,7 @@ func (a *AES) makeroundkeys(direction bool) {
 
 // Iterator to go through each 4x4 block and write results into correct offsets
 // direction is false for encrypt, true for decrypt
-func (a *AES) blockiterator(round int, direction bool, op func (round int, direction bool, state []word) []word) {
+func (a *AES) blockiterator(round int, direction bool, op func (round int, direction bool, state []Word) []Word) {
 	for i := 0; i < len(a.cipherbytes) - 3; i += 4 {
 		state := op(round, direction, a.cipherbytes[i:i + 4])	
 		for k := i; k < i + 4; k += 1 {
@@ -243,13 +244,13 @@ func (a *AES) blockiterator(round int, direction bool, op func (round int, direc
 
 func (a *AES) addroundkey(round int) {
 	// a.debugf("addroundkey: cipherbytes BEFORE adding round key from round %d: %v\n", round, a.cipherbytes)
-	a.blockiterator(round, false, func(r int, d bool, state []word) []word {
+	a.blockiterator(round, false, func(r int, d bool, state []Word) []Word {
 		// a.debugf("addroundkey: operating on block %v\n", state)
 
 		// The bytes of the round key correspond to the cipher bytes in order they appear
 		// Thus, skip transpose - data is aleady in the right order
 		for j, word := range state {
-			state[j] = fixedxor(word, a.roundkeys[round][j])
+			state[j] = utils.Fixedxor(word, a.roundkeys[round][j])
 		}
 		return state
 	})
@@ -258,7 +259,7 @@ func (a *AES) addroundkey(round int) {
 
 func (a *AES) shiftrows(round int, direction bool) {
 	// a.debugf("shiftrows: cipherbytes BEFORE %t shift on round %d: %v\n", direction, round, a.cipherbytes)
-	a.blockiterator(round, direction, func(r int, d bool, state []word) []word {
+	a.blockiterator(round, direction, func(r int, d bool, state []Word) []Word {
 		s := transpose(state)
 		// a.debugf("shiftrows: operating on block %v; transpose => %v\n", state, s)
 
@@ -277,7 +278,7 @@ func (a *AES) shiftrows(round int, direction bool) {
 
 func (a *AES) substitute(round int, direction bool) {
 	// a.debugf("substitute: cipherbytes BEFORE %t substitute on round %d: %v\n", direction, round, a.cipherbytes)
-	a.blockiterator(round, direction, func(r int, d bool, state []word) []word {
+	a.blockiterator(round, direction, func(r int, d bool, state []Word) []Word {
 		s := transpose(state)
 		// a.debugf("substitute: operating on block %v; transpose => %v\n", state, s)
 
@@ -298,7 +299,7 @@ func (a *AES) substitute(round int, direction bool) {
 
 func (a *AES) mixcols(round int, direction bool) {
 	// a.debugf("mixcols: cipherbytes BEFORE %t mix columns on round %d: %v\n", direction, round, a.cipherbytes)
-	a.blockiterator(round, direction, func(r int, d bool, state []word) []word {
+	a.blockiterator(round, direction, func(r int, d bool, state []Word) []Word {
 		// a.debugf("mixcols: operating on block %v\n", state)
 		
 		matrix := mix
@@ -317,7 +318,7 @@ func (a *AES) mixcols(round int, direction bool) {
 }
 
 func (a *AES) Decrypt_ECB(cipherbytes, key []byte) []byte {
-	a.cipherbytes = bytestowords(cipherbytes)
+	a.cipherbytes = Bytestowords(cipherbytes)
 	a.key = key
 	a.makeroundkeys(true)
 	result := a.decrypt_ecb()
@@ -329,13 +330,13 @@ func (a *AES) Decrypt_ECB(cipherbytes, key []byte) []byte {
 }
 
 func (a *AES) DecryptFile_ECB(filename, key string) []byte {
-	s := read(filename)
+	s := utils.Read(filename)
 	rawbytes := []byte{}
 	for s.Scan() {
-		rawbytes = append(rawbytes, base64decode(s.Text())...)
+		rawbytes = append(rawbytes, utils.Base64decode(s.Text())...)
 	}
 
-	a.cipherbytes = bytestowords(rawbytes)
+	a.cipherbytes = Bytestowords(rawbytes)
 	a.key = []byte(key)
 	a.makeroundkeys(true)
 	result := a.decrypt_ecb()
@@ -354,7 +355,7 @@ func (a *AES) decrypt_ecb() []byte {
 	a.substitute(round, true)
 	round += 1
 
-	for round < ROUND_COUNT - 1 {
+	for round < round_count - 1 {
 		a.addroundkey(round)
 		a.mixcols(round, true)
 		a.shiftrows(round, true)
@@ -363,7 +364,7 @@ func (a *AES) decrypt_ecb() []byte {
 	}
 	a.addroundkey(round)
 
-	return wordstobytes(a.cipherbytes)
+	return Wordstobytes(a.cipherbytes)
 }
 
 func (a *AES) encrypt_ecb() []byte {
@@ -372,7 +373,7 @@ func (a *AES) encrypt_ecb() []byte {
 	a.addroundkey(round)
 	round += 1
 
-	for round < ROUND_COUNT - 1 {
+	for round < round_count - 1 {
 		a.substitute(round, false)
 		a.shiftrows(round, false)
 		a.mixcols(round, false)
@@ -383,15 +384,15 @@ func (a *AES) encrypt_ecb() []byte {
 	a.shiftrows(round, false)
 	a.addroundkey(round)
 
-	return wordstobytes(a.cipherbytes)
+	return Wordstobytes(a.cipherbytes)
 }
 
 func (a *AES) Encrypt_ECB(cipherbytes, key []byte) []byte {
-	a.cipherbytes = bytestowords(cipherbytes)
+	a.cipherbytes = Bytestowords(cipherbytes)
 	a.key = key
 	a.makeroundkeys(false)
 	result := a.encrypt_ecb()
-	// b16 := base16encode_bytes(result)
+	// b16 := utils.Base16encode_bytes(result)
 
 	// fmt.Printf("AES ECB encrypt complete: %s\n", b16)
 	// a.debugf("raw bytes: %v\n\n", result)
@@ -400,7 +401,7 @@ func (a *AES) Encrypt_ECB(cipherbytes, key []byte) []byte {
 }
 
 func (a *AES) decrypt_cbc(fullcipherbytes []byte) []byte {
-	words := bytestowords(fullcipherbytes)
+	words := Bytestowords(fullcipherbytes)
 
 	// The cipher core assumes all cipher blocks are operated on in-parallel
 	// Thus, end result is normally all decryped blocks
@@ -420,7 +421,7 @@ func (a *AES) decrypt_cbc(fullcipherbytes []byte) []byte {
 		firstblock = a.cipherbytes
 
 		for k, w := range firstblock {
-			firstblock[k] = fixedxor(w, secondblock[k])
+			firstblock[k] = utils.Fixedxor(w, secondblock[k])
 		}
 		a.debugf("decrypt_cbc: post-XOR, decryption of block %d: %v\n", i / 4, firstblock)
 
@@ -429,12 +430,12 @@ func (a *AES) decrypt_cbc(fullcipherbytes []byte) []byte {
 		}
 	}
 
-	return wordstobytes(words)
+	return Wordstobytes(words)
 }
 
 func (a *AES) Decrypt_CBC(cipherbytes, key, iv []byte) []byte {
 	a.key = key
-	a.iv = bytestowords(iv)
+	a.iv = Bytestowords(iv)
 	a.makeroundkeys(true)
 	result := a.decrypt_cbc(cipherbytes)
 
@@ -444,14 +445,14 @@ func (a *AES) Decrypt_CBC(cipherbytes, key, iv []byte) []byte {
 }
 
 func (a *AES) DecryptFile_CBC(filename, key string, iv []byte) []byte {
-	s := read(filename)
+	s := utils.Read(filename)
 	rawbytes := []byte{}
 	for s.Scan() {
-		rawbytes = append(rawbytes, base64decode(s.Text())...)
+		rawbytes = append(rawbytes, utils.Base64decode(s.Text())...)
 	}
 
 	a.key = []byte(key)
-	a.iv = bytestowords(iv)
+	a.iv = Bytestowords(iv)
 	a.makeroundkeys(true)
 	result := a.decrypt_cbc(rawbytes)
 
@@ -461,7 +462,7 @@ func (a *AES) DecryptFile_CBC(filename, key string, iv []byte) []byte {
 }
 
 func (a *AES) encrypt_cbc(fullcipherbytes []byte) []byte {
-	words := bytestowords(fullcipherbytes)
+	words := Bytestowords(fullcipherbytes)
 
 	// The cipher core assumes all cipher blocks are operated on in-parallel
 	// Thus, end result is normally all decryped blocks
@@ -476,7 +477,7 @@ func (a *AES) encrypt_cbc(fullcipherbytes []byte) []byte {
 		a.debugf("encrypt_cbc: block num: %d; first block: %v; second block: %v \n", i, firstblock, secondblock)
 
 		for k, w := range firstblock {
-			firstblock[k] = fixedxor(w, secondblock[k])
+			firstblock[k] = utils.Fixedxor(w, secondblock[k])
 		}
 		a.debugf("encrypt_cbc: post-XOR of block %d: %v\n", i / 4, firstblock)
 	
@@ -489,20 +490,30 @@ func (a *AES) encrypt_cbc(fullcipherbytes []byte) []byte {
 		}
 	}
 
-	return wordstobytes(words)
+	return Wordstobytes(words)
 }
 
 func (a *AES) Encrypt_CBC(cipherbytes, key, iv []byte) []byte {
 	a.key = key
-	a.iv = bytestowords(iv)
+	a.iv = Bytestowords(iv)
 	a.makeroundkeys(false)
 	result := a.encrypt_cbc(cipherbytes)
-	b16 := base16encode_bytes(result)
+	b16 := utils.Base16encode_bytes(result)
 
 	fmt.Printf("AES CBC encrypt complete: %s\n", b16)
 	a.debugf("raw bytes: %v\n\n", result)
 
 	return result
+}
+
+func RandomAESkey() []byte {
+	b := make([]byte, 16)
+	minbyte := byte(32)
+	maxbyte := byte(126)
+	for k, _ := range b {
+		b[k] = utils.Randombyte(minbyte, maxbyte)
+	}
+	return b
 }
 
 // Break out an 8-byte (uint64) int into it's individual 8 bytes
@@ -520,7 +531,7 @@ func int_to_bytes(input uint64) []byte {
 	return result
 }
 
-func (a *AES) process_ctr(inbytes, key, nonce []byte, counter_init uint64) ([]byte, []byte, error) {
+func (a *AES) Process_CTR(inbytes, key, nonce []byte, counter_init uint64) ([]byte, []byte, error) {
 	var counter uint64 = counter_init
 	result := []byte{}
 	keystream := []byte{}
@@ -529,9 +540,9 @@ func (a *AES) process_ctr(inbytes, key, nonce []byte, counter_init uint64) ([]by
 		return nil, nil, fmt.Errorf("AES-CTR: invalid nonce supplied - 8 bytes required, got: %d bytes", len(nonce))
 	}
 
-	for i := 0; i < blocklen(inbytes); i += 1 {
+	for i := 0; i < utils.Blocklen(inbytes); i += 1 {
 		counter_bytes := int_to_bytes(counter)
-		curr_block := nth_block(inbytes, i)
+		curr_block := utils.Nth_block(inbytes, i)
 
 		// The counter has to be in little-endian
 		slices.Reverse(counter_bytes)
@@ -542,7 +553,7 @@ func (a *AES) process_ctr(inbytes, key, nonce []byte, counter_init uint64) ([]by
 		a.debugf("block %d: using counter value %d (%v), payload: %v (%d)\nCTR keystream: %v\n", i, counter, counter_bytes, payload, len(payload), cipherbytes)
 
 
-		r := fixedxor(curr_block, cipherbytes)
+		r := utils.Fixedxor(curr_block, cipherbytes)
 		result = append(result, r...)
 		// a.debugf("\nblock %d\nbefor: %v\nafter: %v\n\n", i, curr_block, r)
 
@@ -553,13 +564,13 @@ func (a *AES) process_ctr(inbytes, key, nonce []byte, counter_init uint64) ([]by
 	return result, keystream, nil
 }
 
-func (a *AES) ctr_seek_edit(cipherbytes, key, nonce []byte, offset int, new_plainbytes []byte) ([]byte, error) {
-	_, keystream, err := a.process_ctr(cipherbytes, key, nonce, 0)
+func (a *AES) CTR_seek_edit(cipherbytes, key, nonce []byte, offset int, new_plainbytes []byte) ([]byte, error) {
+	_, keystream, err := a.Process_CTR(cipherbytes, key, nonce, 0)
 	if err != nil {
 		return nil, err
 	}
 	for i := offset; i < len(new_plainbytes) + offset; i += 1 {
-		cipherbytes[i] = xorbytes(new_plainbytes[i - offset], keystream[i])
+		cipherbytes[i] = utils.Xorbytes(new_plainbytes[i - offset], keystream[i])
 	}
 	return cipherbytes, nil
 }
