@@ -13,6 +13,7 @@ import (
 	"jkayani.local/mycrypto/utils"
 	"jkayani.local/mycrypto/aes"
 	"jkayani.local/mycrypto/rng"
+	"jkayani.local/mycrypto/sha1"
 )
 
 func main() {
@@ -1407,4 +1408,9 @@ func cbc_key_as_iv() ([]byte, []byte) {
 	fmt.Printf("output: %v (%d)\nerr: %v\n", att_plain, len(att_plain), err)
 	att_key := utils.Fixedxor(utils.Nth_block(att_plain, 0), utils.Nth_block(att_plain, 2))
 	return key, att_key
+}
+
+func sha1_keyed_mac(key, plainbytes []byte) string {
+	s := sha1.SHA1{}
+	return s.Hash(append(key, plainbytes...))
 }

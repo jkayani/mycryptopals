@@ -83,6 +83,7 @@ func Fuzz_Hash(tf *t.F) {
 		infile := path + s.Hash([]byte(k))
 
 		cli_base := fmt.Sprintf("sha1sum < %s | awk '{print $1}';", infile)
+		// cli_base := fmt.Sprintf("openssl sha1 - < %s | awk '{print $2}';", infile)
 		f, err := os.Create(infile)
 		if err != nil {
 			tt.Fatalf("err: %s", err)

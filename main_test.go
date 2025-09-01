@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"jkayani.local/mycrypto/utils"
+	"jkayani.local/mycrypto/aes"
 )
 
 func TestXorByteCipher(tt *t.T) {
@@ -201,4 +202,16 @@ func Test_CBC_Key_as_IV(tt *t.T) {
 	if !slices.Equal(e, a) {
 		tt.Fatalf("Recover AES-CBC key when key=IV failed: actual: %v, expected: %v\n", a, e)
 	}
+}
+
+func Fuzz_SHA1_Keyed_MAC(tf *t.F) {
+	test_input := "josh"
+	key := aes.RandomAESkey()
+	expected := sha1_keyed_mac(key, []byte(test_input))
+	tf.Fuzz(func(tt *t.T, input []byte) {
+		out := sha1_keyed_mac(key, input)
+		if out == expected && !slices.Equal(input, []byte(test_input)) {
+			tt.Fatalf("generated matching MAC with input: %v unlike test case: %v", input, test_input)
+		}
+	})
 }
