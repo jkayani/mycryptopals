@@ -72,6 +72,17 @@ func Bitstream_bytes(bits []int) []byte {
 	return res
 }
 
+func Bytes_to_int(b []byte) int {
+	if len(b) > 8 {
+		panic(fmt.Sprintf("Bytes_to_int: cannot fit %d bytes into 64-bit int", len(b)))
+	}
+	var result int
+	for k, v := range b {
+		result |= int(v) << (64 - 8 * (k + 1))
+	}
+	return result
+}
+
 func Tobase64(val int) (ascii int) {
 	if val == 62 {
 

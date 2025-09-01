@@ -222,3 +222,31 @@ func Test_ValidatePKCS7Padding(tt *t.T) {
 		}
 	}
 }
+
+func Test_Bytes_to_int(tt *t.T) {
+	type s struct {
+		input []byte
+		expected int
+	}
+
+	cases := []s{
+		s{
+			[]byte{0, 0, 0, 0},
+			0,
+		},
+		s{
+			[]byte{1},
+			0x0100000000000000,
+		},
+		s{
+			[]byte{1, 2, 3, 4},
+			0x0100000000000000 | 0x02000000000000 | 0x030000000000 | 0x0400000000,
+		},
+	}
+
+	for _, c := range cases {
+		if out := Bytes_to_int(c.input); out != c.expected {
+			tt.Fatalf("expected %v for bytes to int of %v, got: %v\n", c.expected, c.input, out)
+		}
+	}
+}
