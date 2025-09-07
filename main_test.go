@@ -215,3 +215,10 @@ func Fuzz_SHA1_Keyed_MAC(tf *t.F) {
 		}
 	})
 }
+
+func Test_Forge_SHA1_MAC(tt *t.T) {
+	admin, accepted := forged_sha1_mac()
+	if !(accepted && admin) {
+		tt.Fatalf("SHA-1 failed to be forged")
+	}
+}

@@ -393,3 +393,33 @@ func mt_seed_crack() {
 </details>
 
 It turns out, the point of the exercise in cracking the seed was to demonstrate how easily guessed the RNG seed is when sample RNG outputs are known, since it's easy to check guesses and it's also easy to make guesses if the seed is based on something like a timestamp. I definitely over-thought this one.
+
+### MAC
+
+MAC is a message authentication code. So far, it's main purpose appears to be around ensuring integrity of the message: assuming the MAC calculation cannot be spoofed by an attacker, requiring a MAC along with a message can be used to ensure the input message wasn't tampered with (since the attacker cannot spoof the MAC and the input MAC is required to match the server-side calculated MAC from the input message)
+
+#### SHA-1
+
+This is a hash algorithm that operates on 64 byte words. When used with a MAC, so far it appears a secret key is pre-pended to the input before hashing. The end result of SHA-1 is a concatenation of 5 4-byte buffers that are the hash algorithm's internal state. 
+
+This means given a server using a constant even if unknown key, a plaintext and its SHA-1 hash, a hash for a modified (by appending) plaintext can be derived from the known hash:
+
+- SHA-1 pads an input to a multiple of 64 bytes, and the last 8 bytes represent the length of the input message
+
+- An attacker can append arbitrary data to a known input. The added data will serve as an additional block, and the preceding blocks will include the original input message and it's original SHA-1 padding. This entire buffer will itself be padded to form a suitable SHA-1 input. In other words:
+
+```
+original_input = <some buffer>
+
+sha1_original_input = <key><some_buffer><padding><len(some_buffer)>
+
+attacker_input = <some buffer><original_padding><original_len(some_buffer)><new_data>
+
+sha1_attacker_input = <key><some buffer><original_padding><original_len(some_buffer)><new_data><new_padding><len(all_data)>
+```
+
+- The original SHA-1 can be decomposed into the original 5 4-byte parts. From here, these values can be used to "resume" the SHA-1 algorithm by hashing the last block, which contains `<new_data><padding><len(data)>`. 
+
+Note that the length values have to account for the key-length (which has to be guessed given an unknown key) and be able to be "overriden" when resuming the hash algorithm (e.g, do not let the algorithm pad the input based on the observed length; pass the whole padded value and have it use that as-is)
+
+The resulting attacker_input will have some "junk" in it, since the original padding and 8-byte length have to be preserved
