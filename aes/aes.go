@@ -516,21 +516,6 @@ func RandomAESkey() []byte {
 	return b
 }
 
-// Break out an 8-byte (uint64) int into it's individual 8 bytes
-func int_to_bytes(input uint64) []byte {
-	result := []byte{}
-	shift_len := 16 - 2
-	for i := 0; i < 8; i += 1 {
-		r := (input & (0xff << (shift_len * 4))) >> (shift_len * 4)
-		// fmt.Printf("iteration: %d, input: %d, shift_len: %d, result: %d\n", i, input, shift_len, r)
-
-		result = append(result, byte(r))
-		shift_len -= 2
-	}
-	// fmt.Printf("result: %v\n", result)
-	return result
-}
-
 func (a *AES) Process_CTR(inbytes, key, nonce []byte, counter_init uint64) ([]byte, []byte, error) {
 	var counter uint64 = counter_init
 	result := []byte{}
@@ -541,7 +526,7 @@ func (a *AES) Process_CTR(inbytes, key, nonce []byte, counter_init uint64) ([]by
 	}
 
 	for i := 0; i < utils.Blocklen(inbytes); i += 1 {
-		counter_bytes := int_to_bytes(counter)
+		counter_bytes := utils.Int_to_bytes(counter)
 		curr_block := utils.Nth_block(inbytes, i)
 
 		// The counter has to be in little-endian

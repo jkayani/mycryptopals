@@ -384,14 +384,10 @@ func TestAESEncrypt_CBC(tt *t.T) {
 	}
 }
 
-func TestInt_To_Bytes(tt *t.T) {
-	int_to_bytes(0x01000007000000ff)
-}
-
 func TestProcess_CTR(tt *t.T) {
 	a := AES{}
 	input := utils.Base64decode("L77na/nrFsKvynd6HzOoG7GHTLXsTVu9qvY/2syLXzhPweyyMTJULu/6/kXX0KSvoOLSFQ==")
-	out, keystream, err := a.Process_CTR(input, []byte("YELLOW SUBMARINE"), int_to_bytes(0), 0)
+	out, keystream, err := a.Process_CTR(input, []byte("YELLOW SUBMARINE"), utils.Int_to_bytes(0), 0)
 	if len(input) != len(out) {
 		tt.Fatalf("incorrect len of ciphertext returned for AES-CTR mode: expected %d, got: %d\n", len(input), len(out))
 	}

@@ -250,3 +250,7 @@ func Test_Bytes_to_int(tt *t.T) {
 		}
 	}
 }
+
+func TestInt_To_Bytes(tt *t.T) {
+	Int_to_bytes(0x01000007000000ff)
+}
