@@ -6,6 +6,7 @@ import (
 
 	"jkayani.local/mycrypto/utils"
 	"jkayani.local/mycrypto/aes"
+	"jkayani.local/mycrypto/sha1"
 )
 
 func TestXorByteCipher(tt *t.T) {
@@ -207,9 +208,10 @@ func Test_CBC_Key_as_IV(tt *t.T) {
 func Fuzz_SHA1_Keyed_MAC(tf *t.F) {
 	test_input := "josh"
 	key := aes.RandomAESkey()
-	expected := sha1_keyed_mac(key, []byte(test_input))
+	s := sha1.SHA1{}
+	expected := keyed_mac(&s, key, []byte(test_input))
 	tf.Fuzz(func(tt *t.T, input []byte) {
-		out := sha1_keyed_mac(key, input)
+		out := keyed_mac(&s, key, input)
 		if out == expected && !slices.Equal(input, []byte(test_input)) {
 			tt.Fatalf("generated matching MAC with input: %v unlike test case: %v", input, test_input)
 		}
@@ -220,5 +222,11 @@ func Test_Forge_SHA1_MAC(tt *t.T) {
 	admin, accepted := forged_sha1_mac()
 	if !(accepted && admin) {
 		tt.Fatalf("SHA-1 failed to be forged")
+	}
+}
+func Test_Forge_MD4_MAC(tt *t.T) {
+	admin, accepted := forged_md4_mac()
+	if !(accepted && admin) {
+		tt.Fatalf("MD4 failed to be forged")
 	}
 }

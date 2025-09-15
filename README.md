@@ -423,3 +423,32 @@ sha1_attacker_input = <key><some buffer><original_padding><original_len(some_buf
 Note that the length values have to account for the key-length (which has to be guessed given an unknown key) and be able to be "overriden" when resuming the hash algorithm (e.g, do not let the algorithm pad the input based on the observed length; pass the whole padded value and have it use that as-is)
 
 The resulting attacker_input will have some "junk" in it, since the original padding and 8-byte length have to be preserved
+
+#### MD4
+
+MD4 is extremely similar to SHA-1:
+
+- The same round functions (operating on words) are used
+- The padding scheme is largely the same
+- The output is the (mostly) concatenation of internal state
+
+This makes it vulnerable to the exact same attack. The subtle (to me) difference between these is that MD4 "reverses" the data it operates on:
+
+- The "bit-length" 8 byte sequence is in LSB order
+- Each buffer constant is loaded into the buffer, in LSB order
+- Each word read from the block is in LSB order
+- The output is the concatenation of each buffer, loaded in LSB order
+
+Even after seeing the example implementation in the RFC in which the buffer constants are in LSB order, it wasn't clear to me this applied to the others too. Therefore I was quite confused debugging this implementation. But, it was mentioned repeatedly in the RFC:
+
+> Similarly, a sequence of bytes can be interpreted as a sequence of 32-bit words, where each consecutive group of four bytes is interpreted as a word with **the low-order (least significant) byte given first**
+
+> A 64-bit representation of b (the length of the message before the
+padding bits were added) is appended to the result of the previous step. In the unlikely event that b is greater than 2^64, then only the low-order 64 bits of b are used. (These bits are appended as two32-bit words and **appended low-order word first in accordance with theprevious conventions**)
+
+> A four-word buffer (A,B,C,D) is used to compute the message digest.
+Here each of A, B, C, D is a 32-bit register. These registers are initialized to the following values in hexadecimal, **low-order bytes first**:
+
+> The message digest produced as output is A, B, C, D. That is, we
+**begin with the low-order byte of A**, and end with the high-order byte
+of D.

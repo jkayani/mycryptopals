@@ -14,7 +14,12 @@ import (
 	"jkayani.local/mycrypto/aes"
 	"jkayani.local/mycrypto/rng"
 	"jkayani.local/mycrypto/sha1"
+	"jkayani.local/mycrypto/md4"
 )
+
+type Hash interface {
+	Hash ([]byte) string
+}
 
 func main() {
 	fmt.Println("nothing")
@@ -1410,29 +1415,30 @@ func cbc_key_as_iv() ([]byte, []byte) {
 	return key, att_key
 }
 
-func sha1_keyed_mac(key, plainbytes []byte) string {
-	s := sha1.SHA1{}
-	return s.Hash(append(key, plainbytes...))
+func keyed_mac(h Hash, key, plainbytes []byte) string {
+	return h.Hash(append(key, plainbytes...))
+}
+func forged_mac_oracle (h Hash, key, plainbytes []byte, mac string) (admin bool, accepted bool) {
+	res := h.Hash(append(key, plainbytes...))
+	// fmt.Printf("oracle calculated hash: %v\n", res)
+	if res == mac {
+		fmt.Printf("oracle accepted plainbytes: %v (%s)\n", plainbytes, plainbytes)
+		parsed := utils.Parse_kv(plainbytes, 0x3d, 0x3b, 0x7e)
+		if admin, ok := parsed["admin"]; ok {
+			return admin == "true", true
+		}
+		return false, true
+	}
+	return false, false
 }
 
 func forged_sha1_mac() (admin, accepted bool) {
 	key := aes.RandomAESkey()
-	oracle := func(plainbytes []byte, mac string) (admin bool, accepted bool) {
-		s := sha1.SHA1{}
-		res := s.Hash(append(key, plainbytes...))
-		// fmt.Printf("oracle calculated hash: %v\n", res)
-		if res == mac {
-			fmt.Printf("oracle accepted plainbytes: %v (%s)\n", plainbytes, plainbytes)
-			parsed := utils.Parse_kv(plainbytes, 0x3d, 0x3b, 0x7e)
-			if admin, ok := parsed["admin"]; ok {
-				return admin == "true", true
-			}
-			return false, true
-		}
-		return false, false
+	oracle := func(plainbytes []byte, mac string) (bool, bool) {
+		return forged_mac_oracle(&sha1.SHA1{}, key, plainbytes, mac)
 	}
 	legit := func(plainbytes []byte) (string) {
-		return sha1_keyed_mac(slices.Clone(key), plainbytes)
+		return keyed_mac(&sha1.SHA1{}, slices.Clone(key), plainbytes)
 	}
 
 	// Attack starts here
@@ -1506,6 +1512,94 @@ func forged_sha1_mac() (admin, accepted bool) {
 		}
 
 		s := sha1.SHA1{}
+		att_new_hash := s.ResumeHash(att_pre_padded, att_h, false)
+		att_oracle_input := append(slices.Clone(att_orignal_input), att_to_add...)
+		admin, accepted := oracle(att_oracle_input, att_new_hash)
+		if accepted && admin {
+			return admin, accepted
+		}
+	}
+	return false, false
+}
+func forged_md4_mac() (admin, accepted bool) {
+	key := aes.RandomAESkey()
+	oracle := func(plainbytes []byte, mac string) (bool, bool) {
+		return forged_mac_oracle(&md4.MD4{}, key, plainbytes, mac)
+	}
+	legit := func(plainbytes []byte) (string) {
+		return keyed_mac(&md4.MD4{}, slices.Clone(key), plainbytes)
+	}
+
+	// Attack starts here
+	// Exact same thing as forging SHA-1 hash
+	// Remember that both the 8-byte "length in bits" sequence,
+	// and the individual state "words" derived from known MD4 hash have to be reversed (unlike SHA-1)!
+	msg := []byte("comment1=cooking%20MCs;userdata=foo;comment2=%20like%20a%20pound%20of%20bacon")
+	hash := legit(msg)
+	att_to_add := []byte(";admin=true")
+
+	max_key_len := 32
+	for att_keylen := 0; att_keylen < max_key_len; att_keylen += 1 {
+
+		// -1 term for the byte that stores the 1-bit appended to end of plaintext
+		// -8 term for the last 8 bytes that store length
+		original_len := att_keylen + len(msg)
+		original_padding := md4.Blocklen_n(original_len) * md4.Blocksize_bytes - original_len - 1 - 8
+		att_len_bytes := md4.Blocklen_n(original_len) * md4.Blocksize_bytes + len(att_to_add)
+		att_padding_len := md4.Blocklen_n(att_len_bytes) * md4.Blocksize_bytes - att_len_bytes - 1 - 8
+		// fmt.Printf("attacker is guessing keylen: %d, original msg len: %d, original padding: %d => new msg len: %d, new padding len: %d\n", att_keylen, original_len, original_padding, att_len_bytes, att_padding_len)
+
+		// To get past the oracle, original padded input must be reconstructed by attacker
+		// so that the hash ends up being same as the attacker calculated one
+		original_len_bytes := utils.Int_to_bytes(uint64(original_len * 8))
+		slices.Reverse(original_len_bytes)
+		att_orignal_input := append(
+			append(
+				append(
+					slices.Clone(msg),
+					0x80,
+				),
+				make([]byte, original_padding)...
+			),
+			original_len_bytes...
+		)
+
+		// To resume MD4, last block must be pre-padded so that the last 8 bytes can be set
+		new_len_bytes := utils.Int_to_bytes(uint64(att_len_bytes * 8))
+		slices.Reverse(new_len_bytes)
+		att_pre_padded := append(
+			append(
+				append(
+					slices.Clone(att_to_add), 
+					0x80,
+				),
+				make([]byte, att_padding_len)...
+			),
+			new_len_bytes...
+		)
+		// fmt.Printf("attacker synthesized original MD4 input: %v (%d)\n", att_orignal_input, len(att_orignal_input))
+		if (len(att_orignal_input) + att_keylen) % md4.Blocksize_bytes != 0 {
+			panic(fmt.Sprintf("Failed to synthesize original MD4 input correctly, got %d length value", len(att_orignal_input)))
+		}
+		if len(att_pre_padded) != md4.Blocksize_bytes {
+			panic(fmt.Sprintf("Failed to forge pre-padded additional MD4 block correctly, got %d length value", len(att_pre_padded)))
+		}
+
+		hash_bytes := utils.Hexdecode(hash)
+		att_h := make([]int, 4)
+		for k, i := 0, 0; k < len(hash_bytes); k, i = k + 4, i + 1 {
+			word := hash_bytes[k : k + 4]
+			slices.Reverse(word)
+			num := utils.Bytes_to_int(word)
+
+			// Avoid arithmetic shift with uint64
+			res := int(uint64(num) >> 32)
+
+			att_h[i] = res
+		}
+		// fmt.Printf("Resuming MD4 hash from: %v and %v\n", att_pre_padded, att_h)
+
+		s := md4.MD4{}
 		att_new_hash := s.ResumeHash(att_pre_padded, att_h, false)
 		att_oracle_input := append(slices.Clone(att_orignal_input), att_to_add...)
 		admin, accepted := oracle(att_oracle_input, att_new_hash)
